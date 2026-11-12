@@ -299,6 +299,21 @@ def proceed_to_round_2(first_name: str, db_path: str = DB_PATH) -> None:
     conn.close()
 
 
+def step_back_to_round_1(first_name: str, db_path: str = DB_PATH) -> None:
+    """Steps player status back from 'Round 1 Report' to 'In Round 1' to allow modifying choices."""
+    norm = normalize_name(first_name)
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    conn = get_db_connection(db_path)
+    with conn:
+        conn.execute("""
+            UPDATE players SET
+                status = 'In Round 1',
+                updated_at = ?
+            WHERE normalized_name = ?
+        """, (now, norm))
+    conn.close()
+
+
 def save_round_2_and_complete(
     first_name: str,
     r2_buyer: float,

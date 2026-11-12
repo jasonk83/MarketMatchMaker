@@ -55,6 +55,11 @@ class TestLeaderboard(unittest.TestCase):
         self.assertEqual(player["status"], "Round 1 Report")
         self.assertEqual(player["r1_cash_end"], 3250000)
 
+        # Test stepping back to Round 1 (Undo Allocation)
+        leaderboard.step_back_to_round_1("Alex", db_path=TEST_DB)
+        player_stepped_back = leaderboard.get_player("alex", db_path=TEST_DB)
+        self.assertEqual(player_stepped_back["status"], "In Round 1")
+
         leaderboard.proceed_to_round_2("Alex", db_path=TEST_DB)
         player = leaderboard.get_player("alex", db_path=TEST_DB)
         self.assertEqual(player["status"], "In Round 2")
