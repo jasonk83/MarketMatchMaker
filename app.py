@@ -6,6 +6,8 @@ multi-homing rivalry, and disintermediation (off-platform leakage).
 """
 
 import os
+import datetime
+import subprocess
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -259,8 +261,224 @@ def get_qr_code_image_bytes(url: str):
         return None
 
 
+# -----------------------------------------------------------------------------
+# Versioning & Footer
+# -----------------------------------------------------------------------------
+def get_app_version_and_date() -> str:
+    """Returns dynamically computed version string 'Version 1.X • Month DD, YYYY' based on git commits."""
+    commit_count = 5
+    formatted_date = datetime.date.today().strftime("%B %d, %Y")
+    try:
+        # Get count of commits
+        res_count = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(__file__) or ".",
+            timeout=2,
+        )
+        if res_count.returncode == 0 and res_count.stdout.strip().isdigit():
+            commit_count = int(res_count.stdout.strip())
+
+        # Get date of latest commit
+        res_date = subprocess.run(
+            ["git", "log", "-1", "--format=%cd", "--date=format:%B %d, %Y"],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(__file__) or ".",
+            timeout=2,
+        )
+        if res_date.returncode == 0 and res_date.stdout.strip():
+            formatted_date = res_date.stdout.strip()
+    except Exception:
+        pass
+    return f"Version 1.{commit_count} • {formatted_date}"
+
+
+def render_app_footer():
+    """Renders a left-justified version and date line at the very bottom of the screen."""
+    ver_str = get_app_version_and_date()
+    st.markdown(
+        f"""
+        <div style="margin-top: 45px; padding-top: 15px; border-top: 1px solid #334155; text-align: left; font-size: 0.82rem; color: #94A3B8;">
+            {ver_str}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Dedicated Instructor Control Panel Page (?view=instructor)
+# -----------------------------------------------------------------------------
+def render_instructor_page(app_access_url: str):
+    """
+    Renders the dedicated, secure Instructor Control Panel.
+    Contains strictly:
+    1. Display and Projection Controls
+    2. Export Student Results option (CSV)
+    3. Pedagogical Benchmark Strategy Reveal
+    4. Classroom Management sections
+    Does not include gameplay elements or the student leaderboard.
+    """
+    st.markdown("# 🔒 The Marketplace Matchmaker — Instructor Control Panel")
+    st.caption("Administrative, pedagogical, and projection controls for course instructors.")
+
+    default_pin = os.environ.get("INSTRUCTOR_PIN", "2026")
+    try:
+        default_pin = st.secrets.get("INSTRUCTOR_PIN", default_pin)
+    except Exception:
+        pass
+
+    if not st.session_state.get("instructor_authenticated", False):
+        st.markdown("""
+        <div class="callout-box" style="border-left-color: #60A5FA;">
+            <h3 style="margin-top: 0; color: #F8FAFC;">🔑 Instructor Verification Required</h3>
+            Enter your instructor PIN to access projection settings, download student CSV results, reveal teaching benchmarks, and manage classroom data.
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_pin_in, col_pin_btn = st.columns([2, 1], vertical_alignment="bottom")
+        with col_pin_in:
+            entered_pin = st.text_input(
+                "Enter Instructor PIN",
+                type="password",
+                key="instructor_auth_pin_input",
+                placeholder="Enter 4-digit PIN",
+            ).strip()
+        with col_pin_btn:
+            if st.button("🔓 Authenticate", type="primary", use_container_width=True):
+                if entered_pin == default_pin.strip():
+                    st.session_state.instructor_authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect PIN. Please re-enter or check your environment configuration.")
+
+        st.write("")
+        st.link_button("🎮 Return to Student Gameplay", url=app_access_url)
+        return
+
+    # Authenticated Action Bar
+    top_c1, top_c2 = st.columns([3, 2], vertical_alignment="center")
+    with top_c1:
+        st.success("🔓 Instructor Access Granted — Active Session")
+    with top_c2:
+        c_out, c_back = st.columns([1, 1])
+        with c_out:
+            if st.button("🔒 Sign Out / Lock", use_container_width=True):
+                st.session_state.instructor_authenticated = False
+                st.rerun()
+        with c_back:
+            st.link_button("🎮 Student View", url=app_access_url, use_container_width=True)
+
+    st.divider()
+
+    # Section 1: Display & Projection Controls
+    st.markdown("### 🎛️ Display & Projection Controls")
+    disp_col1, disp_col2 = st.columns(2)
+    with disp_col1:
+        is_full_setting = leaderboard.get_app_setting("show_full_leaderboard", "false") == "true"
+        full_toggle = st.toggle(
+            "👁️ Display Full Information on Leaderboard",
+            value=is_full_setting,
+            help="When enabled, reveals Company, Status, Liquidity %, Retention %, and Take Rates across all screens."
+        )
+        if full_toggle != is_full_setting:
+            leaderboard.set_app_setting("show_full_leaderboard", "true" if full_toggle else "false")
+            st.rerun()
+
+    with disp_col2:
+        current_custom_url = leaderboard.get_app_setting("classroom_app_url", "")
+        new_custom_url = st.text_input("📱 Classroom App URL (for QR Code)", value=current_custom_url, placeholder="e.g. http://10.102.151.26:8501")
+        if st.button("Save QR Code URL", use_container_width=True):
+            leaderboard.set_app_setting("classroom_app_url", new_custom_url.strip())
+            st.cache_data.clear()
+            st.success("App URL updated! The header QR code has refreshed.")
+            st.rerun()
+
+    # Section 2: Export Student Results (CSV)
+    st.markdown("---")
+    st.markdown("### 📥 Export Student Results")
+    df_export = leaderboard.get_student_export_dataframe()
+    if not df_export.empty:
+        csv_bytes = df_export.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Download Student Results (CSV)",
+            data=csv_bytes,
+            file_name="marketplace_matchmaker_student_results.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    else:
+        st.caption("No student results to export yet.")
+
+    # Section 3: Toggleable Optimal Benchmark Reveal
+    st.markdown("---")
+    st.markdown("### 💡 Pedagogical Benchmark Strategy Reveal")
+    if st.checkbox("Reveal Master Benchmark Strategy & Optimal Allocations"):
+        benchmark = get_optimal_benchmark()
+        b_sc = benchmark["scorecard"]
+        b_r1 = benchmark["r1_result"]
+        b_r2 = benchmark["r2_result"]
+
+        st.markdown(f"""
+        <div class="callout-box" style="border-left-color: #60A5FA;">
+            <h3>🏆 Instructor Pedagogical Benchmark (Composite: {b_sc.composite_score:.1f}/100)</h3>
+            <strong>Round 1 Allocation:</strong><br>
+            • Buyer Spend: $1.20M | Walker Spend: $0.75M | Trust Spend: $0.45M | Take Rate: 10%<br>
+            • <em>Result:</em> Perfect 1:1 balance ratio ({b_r1.balance_ratio:.2f}), 12 min wait times, ${(b_r1.platform_net_revenue)/1_000_000:.2f}M Net Revenue.<br><br>
+            <strong>Round 2 Allocation:</strong><br>
+            • Buyer Spend: $1.10M | Walker Spend: $0.80M | Trust Spend: $0.50M | Take Rate: 15%<br>
+            • <em>Result:</em> Cumulative Trust Moat reaches <strong>$0.95M</strong>, slashing Venmo leakage to under 3%! 
+            Enterprise Valuation: <strong>${b_sc.enterprise_valuation:.2f}M</strong>.<br><br>
+            <strong>Teaching Rationale:</strong><br>
+            {benchmark["rationale"]}
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Section 4: Admin Actions (Classroom Management)
+    st.markdown("---")
+    st.markdown("### 🛠️ Classroom Management")
+    del_col1, del_col2 = st.columns(2)
+    with del_col1:
+        st.markdown("### Delete Individual Entry")
+        df_full = leaderboard.get_leaderboard_dataframe(full_details=True)
+        if not df_full.empty:
+            student_to_delete = st.selectbox("Select student to remove", options=df_full["Founder"].tolist())
+            if st.button("🗑️ Delete Selected Student", type="secondary", use_container_width=True):
+                leaderboard.delete_player(student_to_delete)
+                st.success(f"Removed {student_to_delete} from leaderboard.")
+                st.rerun()
+        else:
+            st.caption("No entries to remove.")
+
+    with del_col2:
+        st.markdown("### Reset Entire Leaderboard")
+        st.caption("Wipes all student records for the next class section. Requires PIN confirmation.")
+        confirm_clear_pin = st.text_input(
+            "Confirm Instructor PIN to Reset",
+            type="password",
+            key="confirm_clear_pin_inst_view",
+            placeholder="Enter PIN to confirm wipe",
+        )
+        if st.button("⚠️ Clear Leaderboard for New Class", type="primary", use_container_width=True):
+            if confirm_clear_pin.strip() == default_pin.strip():
+                leaderboard.reset_leaderboard()
+                st.success("Leaderboard cleared successfully!")
+                st.rerun()
+            else:
+                st.error("PIN confirmation failed. You must re-enter the instructor PIN above to clear the leaderboard.")
+
+
 # Top Header with Prominent Dog Emojis & QR Code Popover
 app_access_url = get_app_access_url()
+
+# Check for dedicated Instructor Control Panel view (?view=instructor)
+if st.query_params.get("view") == "instructor":
+    render_instructor_page(app_access_url)
+    render_app_footer()
+    st.stop()
+
 qr_code_bytes = get_qr_code_image_bytes(app_access_url)
 
 head_col1, head_col2 = st.columns([3, 1], vertical_alignment="center")
@@ -1283,147 +1501,58 @@ with tab_leaderboard:
 
     render_live_leaderboard()
 
+    # Class-Wide Strategy Analytics (Public for all participants and classroom debrief)
+    st.markdown("### 📈 Class-Wide Strategy Analytics")
+    analytics = leaderboard.get_class_analytics()
+    an_col1, an_col2, an_col3, an_col4 = st.columns(4)
+    an_col1.metric("Avg R1 Take Rate", f"{analytics['avg_r1_take']:.1f}%")
+    an_col2.metric("Avg R2 Take Rate", f"{analytics['avg_r2_take']:.1f}%")
+    an_col3.metric("Total Class GMV Leaked to Venmo", f"${analytics['total_leakage_gmv']/1_000_000:.2f}M")
+    an_col4.metric("Avg Enterprise Valuation", f"${analytics['avg_valuation']:.2f}M")
+
+    # R1 Strategy distribution (Color-Blind Safe Palette with Direct Count Labels)
+    st.markdown("### 🐕‍🦺 Round 1 Liquidity Decisions")
+    r1_states = analytics["r1_states"]
+    if r1_states:
+        state_df = pd.DataFrame([
+            {"Strategy Outcome": k.replace("_", " ").title(), "Student Count": v}
+            for k, v in r1_states.items()
+        ])
+        state_chart = alt.Chart(state_df).mark_bar(cornerRadius=4).encode(
+            x=alt.X("Strategy Outcome:N", title="Strategy Outcome"),
+            y=alt.Y("Student Count:Q", title="Student Count"),
+            color=alt.Color("Strategy Outcome:N", legend=alt.Legend(orient="bottom", title=None), scale=alt.Scale(
+                domain=["Balanced", "Demand Overload", "Supply Starvation", "Inactive"],
+                range=["#0284C7", "#F87171", "#F59E0B", "#94A3B8"]
+            )),
+            tooltip=["Strategy Outcome", "Student Count"]
+        )
+        text = state_chart.mark_text(dy=-10).encode(
+            text="Student Count:Q",
+            color=alt.value("#F8FAFC")
+        )
+        st.altair_chart((state_chart + text).properties(height=240), use_container_width=True)
+
     st.divider()
 
-    # PIN-Protected Instructor Panel
-    st.header("🔒 Instructor Control Panel & Class Debrief")
-    default_pin = os.environ.get("INSTRUCTOR_PIN", "2026")
-    try:
-        default_pin = st.secrets.get("INSTRUCTOR_PIN", default_pin)
-    except Exception:
-        pass
+    # Dedicated Instructor Page Link (Opens in New Tab)
+    st.markdown("""
+    <div class="callout-box" style="border-left-color: #60A5FA;">
+        <h3 style="margin-top: 0; color: #F8FAFC;">🔒 Instructor Control Panel</h3>
+        Classroom projection settings, student grade CSV exports, master teaching benchmark reveal, and database reset tools are accessible in a dedicated, secure instructor tab.
+    </div>
+    """, unsafe_allow_html=True)
+    instructor_tab_url = f"{app_access_url}?view=instructor"
+    col_inst_btn, _ = st.columns([1, 1])
+    with col_inst_btn:
+        st.link_button(
+            "🔐 Open Instructor Control Panel (New Tab)",
+            url=instructor_tab_url,
+            type="secondary",
+            use_container_width=True,
+        )
+    st.caption(f"Instructor direct URL: `{instructor_tab_url}`")
 
-    instructor_pin = st.text_input("Enter Instructor PIN", type="password", placeholder="").strip()
 
-    if instructor_pin == default_pin.strip():
-        st.success("🔓 Instructor Access Granted")
-        analytics = leaderboard.get_class_analytics()
-
-        # Display & Projection Controls
-        st.markdown("### 🎛️ Display & Projection Controls")
-        disp_col1, disp_col2 = st.columns(2)
-        with disp_col1:
-            is_full_setting = leaderboard.get_app_setting("show_full_leaderboard", "false") == "true"
-            full_toggle = st.toggle(
-                "👁️ Display Full Information on Leaderboard",
-                value=is_full_setting,
-                help="When enabled, reveals Company, Status, Liquidity %, Retention %, and Take Rates across all screens."
-            )
-            if full_toggle != is_full_setting:
-                leaderboard.set_app_setting("show_full_leaderboard", "true" if full_toggle else "false")
-                st.rerun()
-
-        with disp_col2:
-            current_custom_url = leaderboard.get_app_setting("classroom_app_url", "")
-            new_custom_url = st.text_input("📱 Classroom App URL (for QR Code)", value=current_custom_url, placeholder="e.g. http://10.102.151.26:8501")
-            if st.button("Save QR Code URL"):
-                leaderboard.set_app_setting("classroom_app_url", new_custom_url.strip())
-                st.cache_data.clear()
-                st.success("App URL updated! The header QR code has refreshed.")
-                st.rerun()
-
-        # Export Student Results (CSV)
-        st.markdown("### 📥 Export Student Results")
-        df_export = leaderboard.get_student_export_dataframe()
-        if not df_export.empty:
-            csv_bytes = df_export.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="📥 Download Student Results (CSV)",
-                data=csv_bytes,
-                file_name="marketplace_matchmaker_student_results.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-        else:
-            st.caption("No student results to export yet.")
-
-        # Class-wide Analytics
-        st.markdown("### 📈 Class-Wide Strategy Analytics")
-        an_col1, an_col2, an_col3, an_col4 = st.columns(4)
-        an_col1.metric("Avg R1 Take Rate", f"{analytics['avg_r1_take']:.1f}%")
-        an_col2.metric("Avg R2 Take Rate", f"{analytics['avg_r2_take']:.1f}%")
-        an_col3.metric("Total Class GMV Leaked to Venmo", f"${analytics['total_leakage_gmv']/1_000_000:.2f}M")
-        an_col4.metric("Avg Enterprise Valuation", f"${analytics['avg_valuation']:.2f}M")
-
-        # R1 Strategy distribution (Color-Blind Safe Palette with Direct Count Labels)
-        st.markdown("### 🐕‍🦺 Round 1 Liquidity Decisions")
-        r1_states = analytics["r1_states"]
-        if r1_states:
-            state_df = pd.DataFrame([
-                {"Strategy Outcome": k.replace("_", " ").title(), "Student Count": v}
-                for k, v in r1_states.items()
-            ])
-            state_chart = alt.Chart(state_df).mark_bar(cornerRadius=4).encode(
-                x=alt.X("Strategy Outcome:N", title="Strategy Outcome"),
-                y=alt.Y("Student Count:Q", title="Student Count"),
-                color=alt.Color("Strategy Outcome:N", legend=alt.Legend(orient="bottom", title=None), scale=alt.Scale(
-                    domain=["Balanced", "Demand Overload", "Supply Starvation", "Inactive"],
-                    range=["#0284C7", "#F87171", "#F59E0B", "#94A3B8"]
-                )),
-                tooltip=["Strategy Outcome", "Student Count"]
-            )
-            text = state_chart.mark_text(dy=-10).encode(
-                text="Student Count:Q",
-                color=alt.value("#F8FAFC")
-            )
-            st.altair_chart((state_chart + text).properties(height=240), use_container_width=True)
-
-        # Toggleable Optimal Benchmark Reveal
-        st.markdown("---")
-        st.markdown("### 💡 Pedagogical Benchmark Strategy Reveal")
-        if st.checkbox("Reveal Master Benchmark Strategy & Optimal Allocations"):
-            benchmark = get_optimal_benchmark()
-            b_sc = benchmark["scorecard"]
-            b_r1 = benchmark["r1_result"]
-            b_r2 = benchmark["r2_result"]
-
-            st.markdown(f"""
-            <div class="callout-box" style="border-left-color: #60A5FA;">
-                <h3>🏆 Instructor Pedagogical Benchmark (Composite: {b_sc.composite_score:.1f}/100)</h3>
-                <strong>Round 1 Allocation:</strong><br>
-                • Buyer Spend: $1.20M | Walker Spend: $0.75M | Trust Spend: $0.45M | Take Rate: 10%<br>
-                • <em>Result:</em> Perfect 1:1 balance ratio ({b_r1.balance_ratio:.2f}), 12 min wait times, ${(b_r1.platform_net_revenue)/1_000_000:.2f}M Net Revenue.<br><br>
-                <strong>Round 2 Allocation:</strong><br>
-                • Buyer Spend: $1.10M | Walker Spend: $0.80M | Trust Spend: $0.50M | Take Rate: 15%<br>
-                • <em>Result:</em> Cumulative Trust Moat reaches <strong>$0.95M</strong>, slashing Venmo leakage to under 3%! 
-                Enterprise Valuation: <strong>${b_sc.enterprise_valuation:.2f}M</strong>.<br><br>
-                <strong>Teaching Rationale:</strong><br>
-                {benchmark["rationale"]}
-            </div>
-            """, unsafe_allow_html=True)
-
-        # Admin Actions
-        st.markdown("---")
-        st.markdown("### 🛠️ Classroom Management")
-        del_col1, del_col2 = st.columns(2)
-        with del_col1:
-            st.markdown("### Delete Individual Entry")
-            df_full = leaderboard.get_leaderboard_dataframe(full_details=True)
-            if not df_full.empty:
-                student_to_delete = st.selectbox("Select student to remove", options=df_full["Founder"].tolist())
-                if st.button("🗑️ Delete Selected Student", type="secondary"):
-                    leaderboard.delete_player(student_to_delete)
-                    st.success(f"Removed {student_to_delete} from leaderboard.")
-                    st.rerun()
-            else:
-                st.caption("No entries to remove.")
-
-        with del_col2:
-            st.markdown("### Reset Entire Leaderboard")
-            st.caption("Wipes all student records for the next class section. Requires PIN confirmation.")
-            confirm_clear_pin = st.text_input(
-                "Confirm Instructor PIN to Reset",
-                type="password",
-                key="confirm_clear_pin",
-                placeholder="Enter PIN to confirm wipe",
-            )
-            if st.button("⚠️ Clear Leaderboard for New Class", type="primary"):
-                if confirm_clear_pin.strip() == default_pin.strip():
-                    leaderboard.reset_leaderboard()
-                    st.success("Leaderboard cleared successfully!")
-                    st.rerun()
-                else:
-                    st.error("PIN confirmation failed. You must re-enter the instructor PIN above to clear the leaderboard.")
-
-    elif instructor_pin:
-        st.error("Incorrect PIN. Please re-enter or check your environment configuration.")
+# Render Version & Date Footer (Left-justified at the very bottom of the page)
+render_app_footer()
