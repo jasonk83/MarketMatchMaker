@@ -26,8 +26,8 @@ import leaderboard
 # Configuration & Custom CSS
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="The Marketplace Matchmaker",
-    page_icon="🐾",
+    page_title="The Marketplace Matchmaker 🐶🐾",
+    page_icon="🐶",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -36,29 +36,33 @@ st.markdown("""
 <style>
     /* Metric Card Styling */
     .metric-card {
-        background-color: #1E293B;
-        border: 1px solid #334155;
-        border-radius: 10px;
-        padding: 16px 20px;
-        margin-bottom: 12px;
+        background-color: #1E293B !important;
+        border: 1px solid #334155 !important;
+        border-radius: 10px !important;
+        padding: 16px 20px !important;
+        margin-bottom: 12px !important;
+        color: #F8FAFC !important;
+    }
+    .metric-card * {
+        color: #F8FAFC !important;
     }
     .metric-title {
-        color: #94A3B8;
-        font-size: 0.85rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+        color: #94A3B8 !important;
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.05em !important;
     }
     .metric-value {
-        color: #F8FAFC;
-        font-size: 1.8rem;
-        font-weight: 700;
-        margin-top: 4px;
+        color: #F8FAFC !important;
+        font-size: 1.8rem !important;
+        font-weight: 700 !important;
+        margin-top: 4px !important;
     }
     .metric-sub {
-        color: #38BDF8;
-        font-size: 0.85rem;
-        margin-top: 2px;
+        color: #38BDF8 !important;
+        font-size: 0.85rem !important;
+        margin-top: 2px !important;
     }
     .danger-sub {
         color: #F87171 !important;
@@ -66,30 +70,141 @@ st.markdown("""
     .success-sub {
         color: #4ADE80 !important;
     }
+    .info-tooltip {
+        cursor: help;
+        font-size: 0.85rem !important;
+        opacity: 0.85;
+        margin-left: 5px;
+        display: inline-block;
+        vertical-align: middle;
+        text-decoration: none;
+    }
+    .info-tooltip:hover {
+        opacity: 1.0;
+        transform: scale(1.15);
+    }
     /* Section Callout Card */
     .callout-box {
-        background-color: #1E293B;
-        border-left: 4px solid #3B82F6;
-        padding: 14px 18px;
-        border-radius: 4px;
-        margin-bottom: 16px;
+        background-color: #1E293B !important;
+        border-left: 4px solid #3B82F6 !important;
+        padding: 14px 18px !important;
+        border-radius: 4px !important;
+        margin-bottom: 16px !important;
+        color: #F8FAFC !important;
+    }
+    .callout-box * {
+        color: #F8FAFC !important;
     }
     .warning-box {
-        background-color: rgba(245, 158, 11, 0.12);
-        border-left: 4px solid #F59E0B;
-        padding: 14px 18px;
-        border-radius: 4px;
-        margin-bottom: 16px;
+        background-color: #2D2310 !important;
+        border-left: 4px solid #F59E0B !important;
+        padding: 14px 18px !important;
+        border-radius: 4px !important;
+        margin-bottom: 16px !important;
+        color: #F8FAFC !important;
+    }
+    .warning-box * {
+        color: #F8FAFC !important;
     }
     .danger-box {
-        background-color: rgba(239, 68, 68, 0.12);
-        border-left: 4px solid #EF4444;
-        padding: 14px 18px;
-        border-radius: 4px;
-        margin-bottom: 16px;
+        background-color: #2D1416 !important;
+        border-left: 4px solid #EF4444 !important;
+        padding: 14px 18px !important;
+        border-radius: 4px !important;
+        margin-bottom: 16px !important;
+        color: #F8FAFC !important;
+    }
+    .danger-box * {
+        color: #F8FAFC !important;
     }
 </style>
 """, unsafe_allow_html=True)
+
+
+# -----------------------------------------------------------------------------
+# App Access & QR Code Generation
+# -----------------------------------------------------------------------------
+def get_app_access_url() -> str:
+    custom_url = leaderboard.get_app_setting("classroom_app_url", "")
+    if custom_url.strip():
+        return custom_url.strip()
+    try:
+        if hasattr(st, "context") and hasattr(st.context, "headers"):
+            headers = st.context.headers
+            host = headers.get("host") or headers.get("Host")
+            if host:
+                host_clean = host.split(":")[0]
+                if host_clean not in ("localhost", "127.0.0.1", ""):
+                    proto = headers.get("x-forwarded-proto") or headers.get("X-Forwarded-Proto") or "http"
+                    return f"{proto}://{host}"
+    except Exception:
+        pass
+    try:
+        import streamlit.net_util as net_util
+        ip = net_util.get_internal_ip()
+        if ip and ip != "127.0.0.1":
+            return f"http://{ip}:8501"
+    except Exception:
+        pass
+    return "http://localhost:8501"
+
+
+@st.cache_data
+def get_qr_code_image_bytes(url: str):
+    """
+    Generates QR code PNG bytes.
+    Gracefully falls back to public QR API or None if qrcode package is not installed.
+    """
+    try:
+        import qrcode
+        import io
+        qr = qrcode.QRCode(
+            version=1,
+            box_size=6,
+            border=2,
+        )
+        qr.add_data(url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except ImportError:
+        # Fallback to public QR code API if qrcode is not installed in the runtime environment
+        try:
+            import urllib.request
+            import urllib.parse
+            encoded_url = urllib.parse.quote(url)
+            api_url = f"https://api.qrserver.com/v1/create-qr-code/?size=220x220&data={encoded_url}"
+            req = urllib.request.Request(api_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
+                return resp.read()
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
+# Top Header with Prominent Dog Emojis & QR Code Popover
+app_access_url = get_app_access_url()
+qr_code_bytes = get_qr_code_image_bytes(app_access_url)
+
+head_col1, head_col2 = st.columns([3, 1], vertical_alignment="center")
+with head_col1:
+    st.markdown("# 🐶🐾 The Marketplace Matchmaker")
+    st.caption("Strategic Simulation of Two-Sided Platform Economics & Network Effects")
+with head_col2:
+    with st.popover("📱 Scan App QR Code", use_container_width=True):
+        st.markdown("### 🐶 Join the Marketplace")
+        st.caption("Scan to launch the simulation on your phone or laptop:")
+        if qr_code_bytes:
+            st.image(qr_code_bytes, width=220)
+        else:
+            st.info("ℹ️ Scannable QR code available once `qrcode` is installed (`pip install qrcode`).")
+        st.code(app_access_url, language=None)
+        st.caption("URL can be customized in the Instructor Control Panel.")
+
+st.write("")
 
 
 # -----------------------------------------------------------------------------
@@ -97,6 +212,8 @@ st.markdown("""
 # -----------------------------------------------------------------------------
 if "player_name" not in st.session_state:
     st.session_state.player_name = ""
+if "player_pin" not in st.session_state:
+    st.session_state.player_pin = ""
 if "company_name" not in st.session_state:
     st.session_state.company_name = ""
 if "active_step" not in st.session_state:
@@ -109,42 +226,62 @@ if "scorecard" not in st.session_state:
     st.session_state.scorecard = None
 
 
-def recover_player_state(first_name: str) -> bool:
+def recover_player_state(identifier: str) -> bool:
     """Recovers the player's saved state from the database if present."""
-    record = leaderboard.get_player(first_name)
+    record = leaderboard.get_player(identifier)
     if not record:
         return False
     
     st.session_state.player_name = record["first_name"]
     st.session_state.company_name = record["company_name"]
+    st.session_state.player_pin = record.get("student_pin", "")
+    st.query_params["student_pin"] = record.get("student_pin", "")
+    st.query_params["founder"] = record["first_name"]
     
     status = record["status"]
     if status == "In Round 1":
         st.session_state.active_step = "round1"
-    elif status == "In Round 2":
-        # Reconstruct R1 result
+    elif status in ("Round 1 Report", "In Round 1 Report"):
+        r1_eff = record.get("r1_owners_per_walker") or 8
         r1 = simulate_round_1(
             buyer_spend=record["r1_buyer_spend"],
             supplier_spend=record["r1_supplier_spend"],
             trust_spend=record["r1_trust_spend"],
             take_rate=record["r1_take_rate"],
+            owners_per_walker=r1_eff,
+        )
+        st.session_state.r1_result = r1
+        st.session_state.active_step = "round1_report"
+    elif status == "In Round 2":
+        # Reconstruct R1 result
+        r1_eff = record.get("r1_owners_per_walker") or 8
+        r1 = simulate_round_1(
+            buyer_spend=record["r1_buyer_spend"],
+            supplier_spend=record["r1_supplier_spend"],
+            trust_spend=record["r1_trust_spend"],
+            take_rate=record["r1_take_rate"],
+            owners_per_walker=r1_eff,
         )
         st.session_state.r1_result = r1
         st.session_state.active_step = "round2"
     elif status == "Completed":
         # Reconstruct R1 & R2
+        r1_eff = record.get("r1_owners_per_walker") or 8
         r1 = simulate_round_1(
             buyer_spend=record["r1_buyer_spend"],
             supplier_spend=record["r1_supplier_spend"],
             trust_spend=record["r1_trust_spend"],
             take_rate=record["r1_take_rate"],
+            owners_per_walker=r1_eff,
         )
+        r2_eff = record.get("r2_owners_per_walker") or 8
         r2 = simulate_round_2(
             r1=r1,
             buyer_spend=record["r2_buyer_spend"],
             supplier_spend=record["r2_supplier_spend"],
             trust_spend=record["r2_trust_spend"],
             take_rate=record["r2_take_rate"],
+            owners_per_walker=r2_eff,
         )
         scorecard = compute_final_scores(r1, r2)
         st.session_state.r1_result = r1
@@ -154,12 +291,145 @@ def recover_player_state(first_name: str) -> bool:
     return True
 
 
+# Auto-recover session from URL query parameters on initial page load / refresh
+if not st.session_state.player_name:
+    qp_pin = st.query_params.get("student_pin", "").strip()
+    qp_founder = st.query_params.get("founder", "").strip()
+    if qp_pin:
+        player_record = leaderboard.get_player_by_pin(qp_pin)
+        if player_record:
+            recover_player_state(player_record["first_name"])
+    elif qp_founder:
+        pin_from_name = None
+        if "_" in qp_founder:
+            pin_from_name = qp_founder.split("_")[-1].strip()
+        elif "#" in qp_founder:
+            pin_from_name = qp_founder.split("#")[-1].strip()
+        if pin_from_name:
+            player_record = leaderboard.get_player_by_pin(pin_from_name)
+            if player_record and leaderboard.normalize_name(player_record["first_name"]) == leaderboard.normalize_name(qp_founder):
+                recover_player_state(player_record["first_name"])
+
+
+# -----------------------------------------------------------------------------
+# Quantitative Lever Control Component (Slider + Open Text Field)
+# -----------------------------------------------------------------------------
+def parse_spend_input(text_val: str, current_val: float, max_val: float) -> float:
+    """
+    Parses open text input into a float representing millions of dollars ($M).
+    Handles:
+    - Decimal millions: '1.25', '1.234', '0.5'
+    - Formatted millions: '$1.25M', '1.25m'
+    - Thousands notation: '500k', '$750K'
+    - Raw whole dollars: '1,250,000', '1250000', '$1,234,567'
+    Clamps result within [0.0, max_val].
+    """
+    if not text_val or not str(text_val).strip():
+        return current_val
+    raw = str(text_val).strip().replace("$", "").replace(",", "")
+    try:
+        if raw.lower().endswith("k"):
+            num = float(raw[:-1].strip())
+            val = (num * 1000.0) / 1_000_000.0
+        elif raw.lower().endswith("m"):
+            val = float(raw[:-1].strip())
+        else:
+            val = float(raw)
+            if val > 1000.0:  # Direct dollars e.g. 1,250,000 -> 1.25M
+                val = val / 1_000_000.0
+        return max(0.0, min(float(max_val), val))
+    except Exception:
+        return current_val
+
+
+def _sync_lever_from_slider(prefix: str):
+    val = st.session_state[f"{prefix}_slider"]
+    st.session_state[f"{prefix}_val"] = val
+    st.session_state[f"{prefix}_text"] = f"${val:.2f}M"
+
+
+def _sync_lever_from_text(prefix: str, max_val: float):
+    raw = st.session_state.get(f"{prefix}_text", "")
+    curr = st.session_state.get(f"{prefix}_val", 0.0)
+    parsed = parse_spend_input(raw, curr, max_val)
+    st.session_state[f"{prefix}_val"] = parsed
+    # Slider is clamped to max_val and rounded to 2 decimals
+    st.session_state[f"{prefix}_slider"] = max(0.0, min(float(max_val), round(parsed, 2)))
+    if abs(parsed - round(parsed, 2)) < 1e-4:
+        st.session_state[f"{prefix}_text"] = f"${parsed:.2f}M"
+    elif abs(parsed - round(parsed, 4)) < 1e-6:
+        st.session_state[f"{prefix}_text"] = f"${parsed:.4f}M"
+    else:
+        st.session_state[f"{prefix}_text"] = f"${parsed:.6f}M"
+
+
+def render_lever_control(
+    label: str,
+    key_prefix: str,
+    default_m: float,
+    max_m: float,
+    help_text: str,
+    step_m: float = 0.01,
+) -> float:
+    """
+    Renders a synchronized Slider + Open Text Field lever.
+    Allows students to adjust with the slider or type fine-tuned amounts (e.g. 1.23M, 500k, $1,234,500)
+    to prevent leaving investment resources unallocated on the table.
+    Returns exact spend in dollars (float).
+    """
+    val_key = f"{key_prefix}_val"
+    slider_key = f"{key_prefix}_slider"
+    text_key = f"{key_prefix}_text"
+
+    max_m = float(max(0.01, max_m))
+
+    if val_key not in st.session_state:
+        init_val = min(float(default_m), max_m)
+        st.session_state[val_key] = init_val
+        st.session_state[slider_key] = init_val
+        st.session_state[text_key] = f"${init_val:.2f}M"
+
+    # Guard against max_m changes (e.g. Round 2 cash limit updates)
+    if st.session_state[slider_key] > max_m:
+        st.session_state[slider_key] = max_m
+    if st.session_state[val_key] > max_m:
+        st.session_state[val_key] = max_m
+        st.session_state[text_key] = f"${max_m:.2f}M"
+
+    st.markdown(f"**{label}**", help=help_text)
+    col_s, col_t = st.columns([3, 1])
+    with col_s:
+        st.slider(
+            label=f"{label} (Slider)",
+            min_value=0.0,
+            max_value=max_m,
+            step=step_m,
+            format="$%.2fM",
+            key=slider_key,
+            on_change=_sync_lever_from_slider,
+            args=(key_prefix,),
+            label_visibility="collapsed",
+            help=help_text,
+        )
+    with col_t:
+        st.text_input(
+            label=f"{label} (Open Field)",
+            key=text_key,
+            on_change=_sync_lever_from_text,
+            args=(key_prefix, max_m),
+            label_visibility="collapsed",
+            help="Type exact spend: e.g. 1.23M, $750k, or $1,234,567 to allocate every dollar.",
+        )
+
+    return float(st.session_state[val_key]) * 1_000_000.0
+
+
 # -----------------------------------------------------------------------------
 # Main Navigation Tabs
 # -----------------------------------------------------------------------------
 tab_player, tab_leaderboard = st.tabs([
-    "🐾 Launch Your Marketplace (Player Console)",
-    "🏆 Live Class Leaderboard & Instructor Debrief",
+    "🐶 Launch Your Marketplace (Player Console)",
+    "🏆🐕 Live Class Leaderboard & Instructor Debrief",
 ])
 
 
@@ -167,48 +437,61 @@ tab_player, tab_leaderboard = st.tabs([
 # TAB 1: PLAYER CONSOLE
 # =============================================================================
 with tab_player:
-    # Header
-    st.title("🐾 The Marketplace Matchmaker")
-    st.caption("Strategic Simulation of Two-Sided Platform Economics & Network Effects")
-
     # Step 0: Registration
     if st.session_state.active_step == "registration":
         st.markdown("""
         <div class="callout-box">
-            <h4>👋 Welcome, Founder!</h4>
+            <h4>👋🐶 Welcome, Founder!</h4>
             You have just raised <strong>$5.0M in Seed Capital</strong> to launch an on-demand, peer-to-peer 
-            <strong>Dog Walking Marketplace</strong>. Your mission is to solve the classic 
-            <em>Chicken-or-Egg Cold Start Problem</em>, conquer multi-homing competitors, defend against 
-            off-platform disintermediation, and build a high-valuation platform.
+            <strong>Dog Walking Marketplace 🐕</strong>. Your mission is to solve the classic 
+            <em>Chicken-or-Egg Cold Start Problem</em>, conquer multi-homing competitors (like BarkBuddy 🐩), defend against 
+            off-platform Venmo leakage, and build a high-valuation platform.
         </div>
         """, unsafe_allow_html=True)
 
         col_reg1, col_reg2 = st.columns([1, 1])
         with col_reg1:
-            input_name = st.text_input("Founder First Name", placeholder="e.g. Jordan").strip()
-            input_company = st.text_input("Marketplace Company Name", placeholder="e.g. Bark Avenue, ZoomieWalks, PawPath").strip()
+            input_name = st.text_input("🐕‍🦺 Founder First Name", placeholder="e.g. Jordan").strip()
+            input_company = st.text_input("🐶 Dog Walking Startup Name", placeholder="e.g. Bark Avenue, ZoomieWalks, PawPath").strip()
 
-            if st.button("🚀 Claim $5.0M Seed & Enter Round 1", type="primary", use_container_width=True):
+            if st.button("🐶🚀 Claim $5.0M Seed & Enter Round 1", type="primary", use_container_width=True):
                 if not input_name or not input_company:
                     st.error("Please enter both your First Name and Company Name to begin.")
                 else:
+                    if "_" in input_name:
+                        founder_full_name = input_name
+                        pin = input_name.split("_")[-1].strip()
+                    elif "#" in input_name:
+                        parts = input_name.split("#")
+                        pin = parts[-1].strip()
+                        founder_full_name = f"{parts[0].strip()}_{pin}"
+                    else:
+                        pin = leaderboard.generate_unique_pin()
+                        founder_full_name = f"{input_name}_{pin}"
+
                     # Check if returning player
-                    recovered = recover_player_state(input_name)
+                    recovered = recover_player_state(founder_full_name)
                     if recovered:
                         st.info(f"Welcome back, {st.session_state.player_name}! Restoring your saved session...")
                         st.rerun()
                     else:
                         # New player registration
-                        record, _ = leaderboard.register_or_get_player(input_name, input_company)
+                        record, _ = leaderboard.register_or_get_player(founder_full_name, input_company, pin=pin)
                         st.session_state.player_name = record["first_name"]
                         st.session_state.company_name = record["company_name"]
+                        st.session_state.player_pin = pin
+                        st.query_params["student_pin"] = pin
+                        st.query_params["founder"] = record["first_name"]
+                        for k in list(st.session_state.keys()):
+                            if k.startswith(("r1_buyer", "r1_supplier", "r1_trust", "r2_buyer", "r2_supplier", "r2_trust")):
+                                del st.session_state[k]
                         st.session_state.active_step = "round1"
                         st.rerun()
 
         with col_reg2:
             st.markdown("""
             ### 🎯 Core Learning Objectives
-            - **Two-Sided Liquidity**: 1 active dog walker can fulfill walks for up to **8 dog owners** (~32 walks/mo).
+            - **Two-Sided Liquidity**: 1 active dog walker fulfills walks for **5 to 12 dog owners** (average ~8), driven by walker stamina, experience, and neighborhood route density.
             - **Chicken-or-Egg Risk**: Attracting too many owners creates 90+ min wait times; attracting too many walkers leaves them idle and causes starvation churn.
             - **Platform Governance**: Without background checks and pet insurance, trust collapses.
             - **Defensibility**: High take rates tempt users to exchange numbers and pay via **Venmo** off-app.
@@ -218,35 +501,40 @@ with tab_player:
     if st.session_state.active_step != "registration":
         top_c1, top_c2, top_c3 = st.columns([2, 2, 1])
         with top_c1:
-            st.markdown(f"**Founder:** `{st.session_state.player_name}` | **Company:** `{st.session_state.company_name}`")
+            st.markdown(f"**🐕 Founder:** `{st.session_state.player_name}` | **🏢 Startup:** `{st.session_state.company_name}`")
         with top_c2:
             status_text = {
-                "round1": "⏳ Round 1: Cold Start Liquidity",
+                "round1": "⏳ Round 1: Cold Start Dog Liquidity",
                 "round1_report": "📊 Round 1 Diagnostic Report",
                 "round2": "🟡 Round 2: Multi-Homing & Leakage Threat",
-                "final_scorecard": "✅ Final Scorecard (Locked)",
+                "final_scorecard": "🏆 Final Scorecard (Top Dog Rank)",
             }.get(st.session_state.active_step, "")
             st.markdown(f"**Stage:** {status_text}")
         with top_c3:
             if st.button("🔄 Switch Founder", use_container_width=True):
                 st.session_state.player_name = ""
+                st.session_state.player_pin = ""
                 st.session_state.company_name = ""
                 st.session_state.active_step = "registration"
                 st.session_state.r1_result = None
                 st.session_state.r2_result = None
                 st.session_state.scorecard = None
+                st.query_params.clear()
+                for k in list(st.session_state.keys()):
+                    if k.startswith(("r1_buyer", "r1_supplier", "r1_trust", "r2_buyer", "r2_supplier", "r2_trust")):
+                        del st.session_state[k]
                 st.rerun()
         st.divider()
 
     # Step 1: Round 1 Strategy Allocation
     if st.session_state.active_step == "round1":
-        st.subheader("Round 1: The Liquidity Crisis (Cold Start Launch)")
+        st.subheader("Round 1: 🐶 The Liquidity Crisis (Cold Start Launch)")
         st.markdown("""
         <div class="callout-box">
-            <strong>The Chicken-or-Egg Challenge:</strong> Dog owners will not join without reliable nearby dog walkers, 
+            <strong>🐕 The Chicken-or-Egg Challenge:</strong> Dog owners will not join without reliable nearby dog walkers, 
             and dog walkers will not stay active without steady walk bookings.<br>
             • <strong>Seed Capital:</strong> $5.00M available.<br>
-            • <strong>Capacity Rule:</strong> 1 active dog walker serves up to <strong>8 regular dog owners</strong>.<br>
+            • <strong>Capacity Rule:</strong> 1 active dog walker serves between <strong>5 and 12 regular dog owners</strong> (average ~8), depending on walker quality, experience, and route clustering.<br>
             • <strong>Walk Price:</strong> Standardized at <strong>$30 per walk</strong>.
         </div>
         """, unsafe_allow_html=True)
@@ -254,38 +542,34 @@ with tab_player:
         col_l, col_r = st.columns([3, 2])
         with col_l:
             st.markdown("#### ⚙️ Quantitative Capital Levers")
-            buyer_spend = st.slider(
-                "1. Buyer Acquisition Spend (Dog Owners)",
-                min_value=0.0,
-                max_value=5.0,
-                value=1.2,
-                step=0.05,
-                format="$%.2fM",
-                help="Funds first-walk discount coupons, localized ads, and community campaigns. CAC rises with aggressive spend."
-            ) * 1_000_000.0
+            st.caption("💡 Adjust sliders or type fine-tuned amounts in the open fields (e.g. `1.25M`, `$750k`, or `$1,234,567`) to deploy every dollar.")
 
-            supplier_spend = st.slider(
-                "2. Supplier Acquisition Spend (Dog Walkers)",
-                min_value=0.0,
-                max_value=5.0,
-                value=0.75,
-                step=0.05,
-                format="$%.2fM",
-                help="Funds guaranteed hourly minimums, onboarding bonuses, and walker equipment."
-            ) * 1_000_000.0
+            buyer_spend = render_lever_control(
+                "1. 🐶 Dog Owner Marketing (Buyer CAC)",
+                key_prefix="r1_buyer",
+                default_m=0.0,
+                max_m=5.0,
+                help_text="Funds first-walk discount coupons, localized ads, and community campaigns. CAC rises with aggressive spend."
+            )
 
-            trust_spend = st.slider(
-                "3. Platform Governance & Trust Spend",
-                min_value=0.0,
-                max_value=5.0,
-                value=0.45,
-                step=0.05,
-                format="$%.2fM",
-                help="Funds $25k Pet Emergency Insurance pools, automated background checks, and live GPS route tracking."
-            ) * 1_000_000.0
+            supplier_spend = render_lever_control(
+                "2. 🦮 Dog Walker Recruitment (Supplier CAC)",
+                key_prefix="r1_supplier",
+                default_m=0.0,
+                max_m=5.0,
+                help_text="Funds guaranteed hourly minimums, onboarding bonuses, and walker equipment."
+            )
+
+            trust_spend = render_lever_control(
+                "3. 🦴 Pet Safety, Insurance & Vet Governance (Trust Moat)",
+                key_prefix="r1_trust",
+                default_m=0.0,
+                max_m=5.0,
+                help_text="Funds $25k Pet Emergency Insurance pools, automated background checks, and live GPS route tracking."
+            )
 
             take_rate_pct = st.radio(
-                "4. Platform Take Rate (Commission % per $30 walk)",
+                "4. 🥩 Platform Take Rate (% per $30 walk)",
                 options=[5, 10, 15, 20, 25],
                 index=1,
                 horizontal=True,
@@ -299,26 +583,49 @@ with tab_player:
             total_spend_r1 = buyer_spend + supplier_spend + trust_spend
             cash_left = 5_000_000.0 - total_spend_r1
 
-            st.metric("Total Round 1 Spend", f"${total_spend_r1/1_000_000:.2f}M", f"${5.0 - total_spend_r1/1_000_000:.2f}M Seed Remaining")
+            st.metric(
+                "Total Round 1 Spend",
+                f"${total_spend_r1/1_000_000:.2f}M",
+                f"${cash_left:,.0f} unallocated" if cash_left >= 0 else f"${-cash_left:,.0f} OVER BUDGET",
+                delta_color="normal" if cash_left >= 0 else "inverse"
+            )
 
-            if total_spend_r1 > 5_000_000.0:
-                st.markdown("""
+            if round(total_spend_r1, 2) > 5_000_000.0:
+                st.markdown(f"""
                 <div class="danger-box">
-                    🚨 <strong>Budget Overdraft!</strong> You have allocated more than your $5.0M seed capital. 
-                    Reduce your spend sliders before committing.
+                    🚨 <strong>Budget Overdraft!</strong> You have allocated ${total_spend_r1:,.0f}, exceeding your $5.0M seed capital. 
+                    Reduce your spend sliders/fields before committing.
+                </div>
+                """, unsafe_allow_html=True)
+            elif total_spend_r1 <= 0.0:
+                st.markdown("""
+                <div class="warning-box">
+                    ⚠️ <strong>No Capital Allocated:</strong> All levers are at $0. Allocate your $5.0M seed capital across the levers to formulate your strategy before committing.
+                </div>
+                """, unsafe_allow_html=True)
+            elif cash_left == 0.0:
+                st.markdown("""
+                <div class="callout-box" style="border-left-color: #10B981;">
+                    🎯 <strong>Zero Waste Allocation:</strong> 100% of seed capital ($5,000,000) deployed with maximum efficiency!
+                </div>
+                """, unsafe_allow_html=True)
+            elif cash_left < 100_000.0:
+                st.markdown(f"""
+                <div class="callout-box" style="border-left-color: #10B981;">
+                    ✅ <strong>Tight Allocation:</strong> Only <strong>${cash_left:,.0f}</strong> unallocated. Maximum capital is working for your marketplace.
                 </div>
                 """, unsafe_allow_html=True)
             elif total_spend_r1 > 3_500_000.0:
-                st.markdown("""
+                st.markdown(f"""
                 <div class="warning-box">
-                    ⚠️ <strong>Capital Depletion Warning:</strong> Spending over $3.5M leaves under $1.5M for Round 2. 
+                    ⚠️ <strong>Capital Depletion Warning:</strong> Spending over $3.5M leaves under ${cash_left:,.0f} (${cash_left/1_000_000:.2f}M) for Round 2. 
                     You risk entering Round 2 severely under-capitalized against emerging rivals.
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                st.markdown("""
+                st.markdown(f"""
                 <div class="callout-box">
-                    ✅ <strong>Prudent Reserve:</strong> You are retaining sufficient seed capital to defend your position in Round 2.
+                    ✅ <strong>Prudent Reserve:</strong> Retaining <strong>${cash_left:,.0f}</strong> (${cash_left/1_000_000:.2f}M) in seed reserves to defend your position in Round 2.
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -326,10 +633,11 @@ with tab_player:
             **Strategic Check:**
             - Base Dog Owner CAC: ~$60
             - Base Dog Walker CAC: ~$350
-            - Target Ratio: 1 Walker per 8 Dog Owners
+            - Target Ratio: 1 Walker per 5–12 Dog Owners (Target baseline: ~8)
             """)
 
-            if st.button("🔒 Commit Round 1 Strategy (Blind Decision)", type="primary", use_container_width=True, disabled=(total_spend_r1 > 5_000_000.0)):
+            can_commit_r1 = (round(total_spend_r1, 2) <= 5_000_000.0 and total_spend_r1 > 0.0)
+            if st.button("🐕‍🦺 Commit Round 1 Strategy (Blind Decision)", type="primary", use_container_width=True, disabled=not can_commit_r1):
                 r1_result = simulate_round_1(
                     buyer_spend=buyer_spend,
                     supplier_spend=supplier_spend,
@@ -352,6 +660,7 @@ with tab_player:
                     liquidity=r1_result.liquidity_rate,
                     net_rev=r1_result.platform_net_revenue,
                     cash_end=r1_result.cash_end,
+                    r1_owners_per_walker=r1_result.owners_per_walker,
                 )
                 st.session_state.active_step = "round1_report"
                 st.rerun()
@@ -361,7 +670,14 @@ with tab_player:
         r1 = st.session_state.r1_result
         st.subheader("📊 Round 1 Diagnostic Report")
 
-        if r1.state_classification == "DEMAND_OVERLOAD":
+        if r1.state_classification == "INACTIVE":
+            st.markdown("""
+            <div class="warning-box">
+                💤 <strong>INACTIVE MARKETPLACE:</strong> No capital was allocated to acquire users or walkers. 
+                Your marketplace remained completely dormant.
+            </div>
+            """, unsafe_allow_html=True)
+        elif r1.state_classification == "DEMAND_OVERLOAD":
             st.markdown("""
             <div class="danger-box">
                 ⚠️ <strong>DEMAND OVERLOAD CRISIS:</strong> Dog owner demand overwhelmed your dog walker capacity! 
@@ -376,30 +692,31 @@ with tab_player:
             </div>
             """, unsafe_allow_html=True)
         else:
-            st.markdown("""
+            st.markdown(f"""
             <div class="callout-box" style="border-left-color: #10B981;">
                 ✅ <strong>HYPER-LOCAL LIQUIDITY SYNCHRONIZED:</strong> Exceptional synchronization! 
-                Supply and demand matched tightly within the 1-to-8 ratio, yielding low wait times and happy participants.
+                Supply and demand matched tightly within the balanced capacity ratio ({r1.owners_per_walker} owners/walker), yielding low wait times and happy participants.
             </div>
             """, unsafe_allow_html=True)
 
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        col_m1.metric("Owners Acquired", f"{r1.owners_acquired:,}", f"{r1.surviving_owners:,} surviving")
-        col_m2.metric("Walker Capacity", f"{r1.walker_capacity:,} owners", f"{r1.walkers_acquired:,} walkers active")
-        col_m3.metric("Avg Wait Time", f"{r1.avg_wait_time_minutes} mins", f"Balance: {r1.balance_ratio:.2f}")
-        col_m4.metric("Net Revenue Earned", f"${r1.platform_net_revenue/1_000_000:.2f}M", f"GMV: ${r1.gross_merchandise_value/1_000_000:.2f}M")
+        col_m1.metric("🐶 Owners Acquired", f"{r1.owners_acquired:,}", f"{r1.surviving_owners:,} surviving")
+        col_m2.metric("🦮 Walker Capacity", f"{r1.walker_capacity:,} owners", f"{r1.walkers_acquired:,} walkers @ {r1.owners_per_walker}/wk ({r1.walker_efficiency_rating})")
+        col_m3.metric("⏱️ Avg Wait Time", f"{r1.avg_wait_time_minutes} mins", f"Balance: {r1.balance_ratio:.2f}")
+        col_m4.metric("💰 Net Revenue Earned", f"${r1.platform_net_revenue/1_000_000:.2f}M", f"GMV: ${r1.gross_merchandise_value/1_000_000:.2f}M")
 
-        # Capacity vs Demand Chart
+        # Capacity vs Demand Chart (bind Matched Happy Pups to actual fulfilled walks)
+        fulfilled_pups = r1.matched_walks // 12
         chart_data = pd.DataFrame({
-            "Side": ["Dog Owner Demand", "Walker Capacity (Walkers × 8)", "Matched Surviving Owners"],
-            "Users": [r1.owners_acquired, r1.walker_capacity, r1.surviving_owners],
+            "Side": ["🐶 Dog Owner Demand", f"🦮 Walker Capacity (Walkers × {r1.owners_per_walker})", "🐾 Matched Happy Pups"],
+            "Users": [r1.owners_acquired, r1.walker_capacity, fulfilled_pups],
             "Type": ["Demand", "Capacity", "Matched"],
         })
         chart = alt.Chart(chart_data).mark_bar(cornerRadius=6).encode(
             x=alt.X("Side:N", title=""),
             y=alt.Y("Users:Q", title="Number of People / Capacity"),
             color=alt.Color("Side:N", legend=None, scale=alt.Scale(
-                domain=["Dog Owner Demand", "Walker Capacity (Walkers × 8)", "Matched Surviving Owners"],
+                domain=["🐶 Dog Owner Demand", f"🦮 Walker Capacity (Walkers × {r1.owners_per_walker})", "🐾 Matched Happy Pups"],
                 range=["#3B82F6", "#F59E0B", "#10B981"]
             )),
             tooltip=["Side", "Users"]
@@ -417,7 +734,8 @@ with tab_player:
         </div>
         """, unsafe_allow_html=True)
 
-        if st.button("⚡ Proceed to Round 2: The Rival Threat", type="primary", use_container_width=True):
+        if st.button("⚡ Proceed to Round 2: Rival Threat (BarkBuddy 🐕)", type="primary", use_container_width=True):
+            leaderboard.proceed_to_round_2(st.session_state.player_name)
             st.session_state.active_step = "round2"
             st.rerun()
 
@@ -426,91 +744,138 @@ with tab_player:
         r1 = st.session_state.r1_result
         available_cash_r2 = r1.cash_end
 
-        st.subheader("Round 2: The Multi-Homing & Disintermediation Threat")
+        st.subheader("Round 2: 🐕 Rival BarkBuddy & The Venmo Temptation")
         
         st.markdown("""
         <div class="warning-box">
             <h4>🚨 Urgent Market Crisis Briefing:</h4>
-            <strong>1. Rival Entrant 'BarkBuddy':</strong> A well-funded competitor has just entered the city with an aggressive 
+            <strong>1. Rival Entrant 'BarkBuddy' 🐩:</strong> A well-funded competitor has just entered the city with an aggressive 
             <strong>12% Take Rate</strong> and heavy walker poaching bonuses. If your take rate is 20%+ or you underfund walker retention, 
             walkers will multi-home and defect to BarkBuddy.<br><br>
-            <strong>2. Off-Platform Leakage ('The Venmo Temptation'):</strong> Repeat dog owners and walkers who matched in Round 1 now know each other! 
+            <strong>2. Off-Platform Leakage ('The Venmo Temptation' 📱):</strong> Repeat dog owners and walkers who matched in Round 1 now know each other! 
             They are tempted to text each other directly and pay via Venmo to bypass platform fees.<br>
-            <em>The Only Defense:</em> <strong>Cumulative Governance & Trust Spend</strong>. Dog owners will refuse to go off-app if they would forfeit your 
+            <em>The Only Defense:</em> <strong>Cumulative Governance & Trust Moat 🦴</strong>. Dog owners will refuse to go off-app if they would forfeit your 
             $25k Pet Emergency Insurance, real-time GPS tracking, and instant dispute resolution!
         </div>
         """, unsafe_allow_html=True)
 
+        # Round 1 Fleet Baseline Carried Forward
+        st.markdown("#### 🐾 Round 1 Fleet Baseline Carried Forward")
+        b_c1, b_c2, b_c3, b_c4 = st.columns(4)
+        b_c1.metric("🐶 Surviving Owners", f"{r1.surviving_owners:,}")
+        b_c2.metric("🦮 Active Walkers", f"{r1.surviving_walkers:,}", f"R1 Capacity: {r1.surviving_walkers * r1.owners_per_walker:,} owners ({r1.owners_per_walker}/walker)")
+        b_c3.metric("🥩 R1 Take Rate", f"{int(r1.take_rate * 100)}%")
+        b_c4.metric("💰 Available Cash for R2", f"${available_cash_r2/1_000_000:.2f}M")
+
         col2_l, col2_r = st.columns([3, 2])
-        max_spend_val = max(0.1, available_cash_r2 / 1_000_000.0)
+        if available_cash_r2 <= 0.0:
+            with col2_l:
+                st.markdown("""
+                <div class="danger-box">
+                    🚨 <strong>No Capital Remaining:</strong> You have $0 in cash reserves. 
+                    Spend levers are locked to $0.0M. You can only adjust your Platform Take Rate.
+                </div>
+                """, unsafe_allow_html=True)
+                buyer_spend_2 = 0.0
+                supplier_spend_2 = 0.0
+                trust_spend_2 = 0.0
 
-        with col2_l:
-            st.markdown("#### ⚙️ Round 2 Capital Levers")
-            buyer_spend_2 = st.slider(
-                "1. Buyer Growth & Loyalty Budget",
-                min_value=0.0,
-                max_value=float(max_spend_val),
-                value=float(min(1.10, max_spend_val * 0.45)),
-                step=0.05,
-                format="$%.2fM",
-                help="Funds new dog owner acquisition (70%) and existing owner retention subsidies (30%)."
-            ) * 1_000_000.0
+                take_rate_pct_2 = st.radio(
+                    "Platform Take Rate in Round 2 (BarkBuddy is at 12%)",
+                    options=[5, 10, 15, 20, 25],
+                    index=2,
+                    horizontal=True,
+                    format_func=lambda x: f"{x}%",
+                    help="20% and 25% take rates trigger massive multi-homing defection to BarkBuddy and heavy Venmo leakage."
+                )
+                take_rate_2 = take_rate_pct_2 / 100.0
+        else:
+            max_spend_val = max(0.05, available_cash_r2 / 1_000_000.0)
 
-            supplier_spend_2 = st.slider(
-                "2. Supplier Growth & Rival Defense Budget",
-                min_value=0.0,
-                max_value=float(max_spend_val),
-                value=float(min(0.80, max_spend_val * 0.35)),
-                step=0.05,
-                format="$%.2fM",
-                help="Funds new walker recruitment (65%) and walker retention bonuses (35%) to prevent BarkBuddy poaching."
-            ) * 1_000_000.0
+            with col2_l:
+                st.markdown("#### ⚙️ Round 2 Capital Levers")
+                st.caption("💡 Adjust sliders or type fine-tuned amounts in the open fields (e.g. `1.10M`, `$800k`, or exact dollars) to maximize capital efficiency.")
 
-            trust_spend_2 = st.slider(
-                "3. Platform Governance & Trust Moat",
-                min_value=0.0,
-                max_value=float(max_spend_val),
-                value=float(min(0.50, max_spend_val * 0.20)),
-                step=0.05,
-                format="$%.2fM",
-                help="Cumulative trust spend creates switching friction that stops Venmo leakage dead in its tracks."
-            ) * 1_000_000.0
+                buyer_spend_2 = render_lever_control(
+                    "1. 🐶 Dog Owner Growth & Retention Subsidies",
+                    key_prefix="r2_buyer",
+                    default_m=0.0,
+                    max_m=float(max_spend_val),
+                    help_text="Funds new dog owner acquisition (70%) and existing owner retention subsidies (30%)."
+                )
 
-            take_rate_pct_2 = st.radio(
-                "4. Round 2 Take Rate (BarkBuddy is at 12%)",
-                options=[5, 10, 15, 20, 25],
-                index=2,
-                horizontal=True,
-                format_func=lambda x: f"{x}%",
-                help="20% and 25% take rates trigger massive multi-homing defection to BarkBuddy and heavy Venmo leakage."
-            )
-            take_rate_2 = take_rate_pct_2 / 100.0
+                supplier_spend_2 = render_lever_control(
+                    "2. 🦮 Dog Walker Retention & BarkBuddy Defense",
+                    key_prefix="r2_supplier",
+                    default_m=0.0,
+                    max_m=float(max_spend_val),
+                    help_text="Funds new walker recruitment (65%) and walker retention bonuses (35%) to prevent BarkBuddy poaching. Round 2 walkers will operate at a drawn efficiency of 5–12 owners each."
+                )
+
+                trust_spend_2 = render_lever_control(
+                    "3. 🦴 Platform Governance & Trust Moat (Anti-Leakage Shield)",
+                    key_prefix="r2_trust",
+                    default_m=0.0,
+                    max_m=float(max_spend_val),
+                    help_text="Cumulative trust spend creates switching friction that stops Venmo leakage dead in its tracks."
+                )
+
+                take_rate_pct_2 = st.radio(
+                    "4. 🥩 Round 2 Take Rate (BarkBuddy is at 12%)",
+                    options=[5, 10, 15, 20, 25],
+                    index=2,
+                    horizontal=True,
+                    format_func=lambda x: f"{x}%",
+                    help="20% and 25% take rates trigger massive multi-homing defection to BarkBuddy and heavy Venmo leakage."
+                )
+                take_rate_2 = take_rate_pct_2 / 100.0
 
         with col2_r:
             st.markdown("#### 💰 Round 2 Budget Tracker")
             total_spend_r2 = buyer_spend_2 + supplier_spend_2 + trust_spend_2
             cash_rem_after_spend = available_cash_r2 - total_spend_r2
 
-            st.metric("Total Round 2 Spend", f"${total_spend_r2/1_000_000:.2f}M", f"${available_cash_r2/1_000_000:.2f}M Available Cash")
+            st.metric(
+                "Total Round 2 Spend",
+                f"${total_spend_r2/1_000_000:.2f}M",
+                f"${cash_rem_after_spend:,.0f} unallocated" if cash_rem_after_spend >= 0 else f"${-cash_rem_after_spend:,.0f} OVER BUDGET",
+                delta_color="normal" if cash_rem_after_spend >= 0 else "inverse"
+            )
 
-            if total_spend_r2 > available_cash_r2:
-                st.markdown("""
+            if round(total_spend_r2, 2) > round(available_cash_r2, 2):
+                st.markdown(f"""
                 <div class="danger-box">
-                    🚨 <strong>Exceeds Available Cash!</strong> Reduce your spend sliders to stay within your available funds.
+                    🚨 <strong>Exceeds Available Cash!</strong> You have allocated ${total_spend_r2:,.0f}, exceeding your ${available_cash_r2:,.0f} reserves.
+                    Reduce your spend sliders/fields to stay within available funds.
+                </div>
+                """, unsafe_allow_html=True)
+            elif available_cash_r2 > 0 and total_spend_r2 <= 0.0:
+                st.markdown("""
+                <div class="warning-box">
+                    ⚠️ <strong>No Capital Allocated:</strong> All levers are at $0. Allocate your available cash reserves across growth, retention, and trust before submitting.
+                </div>
+                """, unsafe_allow_html=True)
+            elif cash_rem_after_spend == 0.0:
+                st.markdown("""
+                <div class="callout-box" style="border-left-color: #10B981;">
+                    🎯 <strong>Zero Waste Deployment:</strong> 100% of available capital deployed to expand your platform and fend off rivals!
                 </div>
                 """, unsafe_allow_html=True)
             else:
                 st.markdown(f"""
                 <div class="callout-box">
-                    Unspent Cash Reserves: <strong>${cash_rem_after_spend/1_000_000:.2f}M</strong><br>
-                    (Note: 100% of unspent cash is credited to your Enterprise Valuation at the end!)
+                    💼 <strong>Round 2 Capital Allocation:</strong><br>
+                    • Total Spent: <strong>${total_spend_r2/1_000_000:.2f}M</strong> (${total_spend_r2:,.0f})<br>
+                    • Unspent Cash Reserves: <strong>${cash_rem_after_spend/1_000_000:.2f}M</strong> (${cash_rem_after_spend:,.0f})<br>
+                    <em>(Note: 100% of unspent cash is credited to your Enterprise Valuation at the end!)</em>
                 </div>
                 """, unsafe_allow_html=True)
 
             cum_trust = r1.trust_spend + trust_spend_2
-            st.markdown(f"**Cumulative Trust Moat:** `${cum_trust/1_000_000:.2f}M` (Target: `$0.8M+` for max Venmo defense)")
+            st.markdown(f"**🦴 Cumulative Trust Moat:** `${cum_trust/1_000_000:.2f}M` (Target: `$0.8M+` for max Venmo defense)")
 
-            if st.button("🔒 Lock Final Strategy (Submit Round 2)", type="primary", use_container_width=True, disabled=(total_spend_r2 > available_cash_r2)):
+            can_lock_r2 = (round(total_spend_r2, 2) <= round(available_cash_r2, 2)) and (available_cash_r2 <= 0.0 or total_spend_r2 > 0.0)
+            if st.button("🔒 Lock Final Strategy (Submit Round 2 🐶)", type="primary", use_container_width=True, disabled=not can_lock_r2):
                 r2_result = simulate_round_2(
                     r1=r1,
                     buyer_spend=buyer_spend_2,
@@ -540,6 +905,7 @@ with tab_player:
                     valuation_m=scorecard.enterprise_valuation,
                     valuation_score=scorecard.valuation_score,
                     composite_score=scorecard.composite_score,
+                    r2_owners_per_walker=r2_result.owners_per_walker,
                 )
                 st.session_state.active_step = "final_scorecard"
                 st.rerun()
@@ -550,20 +916,23 @@ with tab_player:
         r1 = st.session_state.r1_result
         r2 = st.session_state.r2_result
 
-        st.subheader(f"🏁 Final Executive Scorecard — {st.session_state.company_name}")
+        st.subheader(f"🏁🐕 Final Executive Scorecard — {st.session_state.company_name}")
         st.markdown("""
         <div class="callout-box" style="border-left-color: #10B981;">
             🔒 <strong>ATTEMPT COMPLETED & LOCKED:</strong> Your strategic decisions are finalized and recorded on the 
-            <strong>Live Class Leaderboard</strong>.
+            <strong>Live Class Leaderboard 🏆</strong>.
         </div>
         """, unsafe_allow_html=True)
 
-        # Headline Score Banner
+        # Headline Score Banner with 100-Level Business Tooltips
         score_c1, score_c2, score_c3, score_c4 = st.columns(4)
         with score_c1:
             st.markdown(f"""
             <div class="metric-card" style="border-color: #3B82F6;">
-                <div class="metric-title">Composite Index Score</div>
+                <div class="metric-title">
+                    🏆 Composite Index Score
+                    <span class="info-tooltip" title="Composite Score: Overall platform performance index (0–100) weighting Marketplace Liquidity, Platform Retention, and Enterprise Valuation equally (1/3 each).">ℹ️</span>
+                </div>
                 <div class="metric-value" style="color: #60A5FA;">{sc.composite_score:.1f} / 100</div>
                 <div class="metric-sub">Weighted 1/3 each</div>
             </div>
@@ -571,27 +940,43 @@ with tab_player:
         with score_c2:
             st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-title">Marketplace Liquidity</div>
+                <div class="metric-title">
+                    🎾 Marketplace Liquidity
+                    <span class="info-tooltip" title="Marketplace Liquidity: Measures how easily and quickly buyers and sellers match. High liquidity means dog owners promptly find available walkers without long wait times or cancellations.">ℹ️</span>
+                </div>
                 <div class="metric-value">{sc.liquidity_score:.1f}%</div>
-                <div class="metric-sub">{sc.completed_walks:,} completed walks</div>
+                <div class="metric-sub">{sc.completed_walks:,} completed walks 🐾</div>
             </div>
             """, unsafe_allow_html=True)
         with score_c3:
             st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-title">Platform Retention</div>
+                <div class="metric-title">
+                    🐕 Platform Retention
+                    <span class="info-tooltip" title="Platform Retention: The percentage of buyers and sellers who remain active on your platform over time instead of switching to competitors (like BarkBuddy) or transacting off-platform via Venmo.">ℹ️</span>
+                </div>
                 <div class="metric-value">{sc.retention_score:.1f}%</div>
-                <div class="metric-sub">{r2.active_owners:,} owners | {r2.active_walkers:,} walkers</div>
+                <div class="metric-sub">{r2.active_owners:,} owners 🐶 | {r2.active_walkers:,} walkers 🦮</div>
             </div>
             """, unsafe_allow_html=True)
         with score_c4:
             st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-title">Enterprise Valuation</div>
+                <div class="metric-title">
+                    💎 Enterprise Valuation
+                    <span class="info-tooltip" title="Enterprise Valuation: The estimated total market worth of your company, calculated from annual operating profit multiplied by an industry multiple (8×–14× based on retention quality) plus remaining cash.">ℹ️</span>
+                </div>
                 <div class="metric-value">${sc.enterprise_valuation:.2f}M</div>
                 <div class="metric-sub">${sc.operating_valuation:.2f}M Ops + ${sc.cash_remaining:.2f}M Cash</div>
             </div>
             """, unsafe_allow_html=True)
+
+        with st.expander("📚 100-Level Business Concepts: Understanding Your Core Metrics"):
+            st.markdown("""
+            - **🎾 Marketplace Liquidity**: In business and economics, **liquidity** refers to how easily buyers and sellers can conduct transactions. For a platform marketplace, high liquidity means when a customer wants a service (a dog walk), a supplier is readily available nearby, leading to fast matches and high customer satisfaction.
+            - **🐕 Platform Retention**: **Customer and supplier retention** measures how effectively your business keeps existing users coming back. In two-sided platforms, low retention is dangerous because it signals either customer defection to rivals (*multi-homing*) or disintermediation, where users bypass your platform fee to transact directly off-app (*the Venmo leak*).
+            - **💎 Enterprise Valuation**: **Enterprise valuation** represents the overall economic value of the company as an investment asset. It evaluates both **operating profitability** (recurring cash flow scaled by a quality multiple) and **balance sheet strength** (unspent cash reserves).
+            """)
 
         st.divider()
 
@@ -600,9 +985,9 @@ with tab_player:
             st.markdown("#### 🔄 Transaction Fate in Round 2")
             fate_df = pd.DataFrame({
                 "Outcome": [
-                    "Completed on Platform",
-                    "Leaked to Venmo Off-App",
-                    "Unmatched / Shortage",
+                    "Completed on Platform 🐶",
+                    "Leaked to Venmo Off-App 📱",
+                    "Unmatched / Shortage 😿",
                 ],
                 "Walks": [
                     sc.completed_walks,
@@ -613,7 +998,7 @@ with tab_player:
             fate_chart = alt.Chart(fate_df).mark_arc(innerRadius=60).encode(
                 theta=alt.Theta("Walks:Q"),
                 color=alt.Color("Outcome:N", scale=alt.Scale(
-                    domain=["Completed on Platform", "Leaked to Venmo Off-App", "Unmatched / Shortage"],
+                    domain=["Completed on Platform 🐶", "Leaked to Venmo Off-App 📱", "Unmatched / Shortage 😿"],
                     range=["#10B981", "#EF4444", "#94A3B8"]
                 )),
                 tooltip=["Outcome", "Walks"]
@@ -621,9 +1006,9 @@ with tab_player:
             st.altair_chart(fate_chart, use_container_width=True)
 
             st.markdown(f"""
-            - **Completed Walks:** `{sc.completed_walks:,}` (${r2.gross_merchandise_value/1_000_000:.2f}M GMV)
-            - **Walks Leaked to Venmo:** `{sc.walks_lost_to_leakage:,}` (${r2.gmv_lost_to_venmo/1_000_000:.2f}M lost GMV)
-            - **Walkers Lost to BarkBuddy:** `{r2.walkers_lost_to_rival:,}` ({int(r2.walker_defection_rate*100)}% defection)
+            - **🐾 Completed Walks:** `{sc.completed_walks:,}` (${r2.gross_merchandise_value/1_000_000:.2f}M GMV)
+            - **📱 Walks Leaked to Venmo:** `{sc.walks_lost_to_leakage:,}` (${r2.gmv_lost_to_venmo/1_000_000:.2f}M lost GMV)
+            - **🐩 Walkers Lost to BarkBuddy:** `{r2.walkers_lost_to_rival:,}` ({int(r2.walker_defection_rate*100)}% defection)
             """)
 
         with col_f2:
@@ -639,39 +1024,66 @@ with tab_player:
 # TAB 2: LIVE CLASS LEADERBOARD & INSTRUCTOR DEBRIEF
 # =============================================================================
 with tab_leaderboard:
-    st.title("🏆 Live Class Leaderboard")
+    st.title("🏆🐕 Live Class Leaderboard")
     st.caption("Auto-refreshes every 3 seconds — projected during classroom gameplay")
+
+    # Leaderboard Header
+    st.markdown("### 📊 Ranked Platform Standings")
 
     @st.fragment(run_every=3)
     def render_live_leaderboard():
-        df = leaderboard.get_leaderboard_dataframe()
+        show_full = leaderboard.get_app_setting("show_full_leaderboard", "false") == "true"
+        df = leaderboard.get_leaderboard_dataframe(full_details=show_full)
         
         # Summary counts
         analytics = leaderboard.get_class_analytics()
         col_c1, col_c2, col_c3, col_c4 = st.columns(4)
-        col_c1.metric("Registered Founders", analytics["total_founders"])
-        col_c2.metric("Completed Attempts", analytics["completed_count"])
-        col_c3.metric("In Progress", analytics["in_r1_count"] + analytics["in_r2_count"])
-        col_c4.metric("Avg Composite Score", f"{analytics['avg_composite']:.1f}")
+        col_c1.metric("🐕 Registered Founders", analytics["total_founders"])
+        col_c2.metric("✅ Completed Attempts", analytics["completed_count"])
+        col_c3.metric("⏳ In Progress", analytics["in_r1_count"] + analytics["in_r2_count"])
+        col_c4.metric("⭐ Avg Composite Score", f"{analytics['avg_composite']:.1f}")
 
-        st.markdown("### 📊 Ranked Platform Standings")
-        if df.empty:
-            st.info("No founders registered yet. Tell students to claim their seed funding in the Player Console!")
+        if not show_full:
+            st.caption("🔒 Standings view: Showing Composite Score & Valuation. Use the Instructor Control Panel below to reveal full breakdown.")
         else:
+            st.caption("🔓 Full breakdown view: Company, Status, Liquidity %, Retention %, and Take Rates revealed.")
+
+        if df.empty:
+            st.info("🐶 No founders registered yet. Tell students to scan the QR code and claim seed funding in the Player Console!")
+        else:
+            col_cfg = {
+                "Rank": st.column_config.TextColumn(width="small"),
+                "Founder": st.column_config.TextColumn(width="medium"),
+                "Composite Score": st.column_config.TextColumn(
+                    width="small",
+                    help="Composite Score: Overall platform performance index (0–100) weighting Marketplace Liquidity, Platform Retention, and Enterprise Valuation equally (1/3 each)."
+                ),
+                "Valuation ($M)": st.column_config.TextColumn(
+                    width="small",
+                    help="Enterprise Valuation: Total financial worth of the business based on recurring operating earnings multiplied by an industry multiple (8×–14× based on retention quality) plus remaining cash reserves."
+                ),
+            }
+            if show_full:
+                col_cfg.update({
+                    "Marketplace Company": st.column_config.TextColumn(width="medium"),
+                    "Status": st.column_config.TextColumn(width="small"),
+                    "Liquidity %": st.column_config.TextColumn(
+                        width="small",
+                        help="Marketplace Liquidity: The percentage of desired service transactions successfully matched between buyers and sellers without excessive wait times or order cancellations."
+                    ),
+                    "Retention %": st.column_config.TextColumn(
+                        width="small",
+                        help="Platform Retention: The percentage of buyers and sellers who remain active on your platform rather than defecting to competitors or bypassing platform fees via Venmo."
+                    ),
+                    "R1 Take": st.column_config.TextColumn(width="small", help="Round 1 commission rate charged per walk ($30 base fee)."),
+                    "R2 Take": st.column_config.TextColumn(width="small", help="Round 2 commission rate. Higher take rates increase revenue per transaction but risk user defection and off-platform disintermediation."),
+                })
+
             st.dataframe(
                 df,
                 use_container_width=True,
                 hide_index=True,
-                column_config={
-                    "Rank": st.column_config.TextColumn(width="small"),
-                    "Founder": st.column_config.TextColumn(width="medium"),
-                    "Marketplace Company": st.column_config.TextColumn(width="medium"),
-                    "Status": st.column_config.TextColumn(width="small"),
-                    "Composite Score": st.column_config.TextColumn(width="small"),
-                    "Liquidity %": st.column_config.TextColumn(width="small"),
-                    "Retention %": st.column_config.TextColumn(width="small"),
-                    "Valuation ($M)": st.column_config.TextColumn(width="small"),
-                }
+                column_config=col_cfg,
             )
 
     render_live_leaderboard()
@@ -686,11 +1098,49 @@ with tab_leaderboard:
     except Exception:
         pass
 
-    instructor_pin = st.text_input("Enter Instructor PIN", type="password", placeholder="PIN required (default: 2026)")
+    instructor_pin = st.text_input("Enter Instructor PIN", type="password", placeholder="").strip()
 
-    if instructor_pin == default_pin:
+    if instructor_pin == default_pin.strip():
         st.success("🔓 Instructor Access Granted")
         analytics = leaderboard.get_class_analytics()
+
+        # Display & Projection Controls
+        st.markdown("### 🎛️ Display & Projection Controls")
+        disp_col1, disp_col2 = st.columns(2)
+        with disp_col1:
+            is_full_setting = leaderboard.get_app_setting("show_full_leaderboard", "false") == "true"
+            full_toggle = st.toggle(
+                "👁️ Display Full Information on Leaderboard",
+                value=is_full_setting,
+                help="When enabled, reveals Company, Status, Liquidity %, Retention %, and Take Rates across all screens."
+            )
+            if full_toggle != is_full_setting:
+                leaderboard.set_app_setting("show_full_leaderboard", "true" if full_toggle else "false")
+                st.rerun()
+
+        with disp_col2:
+            current_custom_url = leaderboard.get_app_setting("classroom_app_url", "")
+            new_custom_url = st.text_input("📱 Classroom App URL (for QR Code)", value=current_custom_url, placeholder="e.g. http://10.102.151.26:8501")
+            if st.button("Save QR Code URL"):
+                leaderboard.set_app_setting("classroom_app_url", new_custom_url.strip())
+                st.cache_data.clear()
+                st.success("App URL updated! The header QR code has refreshed.")
+                st.rerun()
+
+        # Export Student Results (CSV)
+        st.markdown("### 📥 Export Student Results")
+        df_export = leaderboard.get_student_export_dataframe()
+        if not df_export.empty:
+            csv_bytes = df_export.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="📥 Download Student Results (CSV)",
+                data=csv_bytes,
+                file_name="marketplace_matchmaker_student_results.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        else:
+            st.caption("No student results to export yet.")
 
         # Class-wide Analytics
         st.markdown("### 📈 Class-Wide Strategy Analytics")
@@ -712,8 +1162,8 @@ with tab_leaderboard:
                 x="Strategy Outcome:N",
                 y="Student Count:Q",
                 color=alt.Color("Strategy Outcome:N", scale=alt.Scale(
-                    domain=["Balanced", "Demand Overload", "Supply Starvation"],
-                    range=["#10B981", "#EF4444", "#F59E0B"]
+                    domain=["Balanced", "Demand Overload", "Supply Starvation", "Inactive"],
+                    range=["#10B981", "#EF4444", "#F59E0B", "#94A3B8"]
                 ))
             ).properties(height=220)
             st.altair_chart(state_chart, use_container_width=True)
@@ -729,7 +1179,7 @@ with tab_leaderboard:
 
             st.markdown(f"""
             <div class="callout-box" style="border-left-color: #38BDF8;">
-                <h4>🏆 Optimal Platform Blueprint (Composite: {b_sc.composite_score:.1f}/100)</h4>
+                <h4>🏆 Instructor Pedagogical Benchmark (Composite: {b_sc.composite_score:.1f}/100)</h4>
                 <strong>Round 1 Allocation:</strong><br>
                 • Buyer Spend: $1.20M | Walker Spend: $0.75M | Trust Spend: $0.45M | Take Rate: 10%<br>
                 • <em>Result:</em> Perfect 1:1 balance ratio ({b_r1.balance_ratio:.2f}), 12 min wait times, ${(b_r1.platform_net_revenue)/1_000_000:.2f}M Net Revenue.<br><br>
@@ -748,7 +1198,7 @@ with tab_leaderboard:
         del_col1, del_col2 = st.columns(2)
         with del_col1:
             st.markdown("#### Delete Individual Entry")
-            df_full = leaderboard.get_leaderboard_dataframe()
+            df_full = leaderboard.get_leaderboard_dataframe(full_details=True)
             if not df_full.empty:
                 student_to_delete = st.selectbox("Select student to remove", options=df_full["Founder"].tolist())
                 if st.button("🗑️ Delete Selected Student", type="secondary"):
@@ -760,11 +1210,20 @@ with tab_leaderboard:
 
         with del_col2:
             st.markdown("#### Reset Entire Leaderboard")
-            st.caption("Wipes all student records for the next class section.")
+            st.caption("Wipes all student records for the next class section. Requires PIN confirmation.")
+            confirm_clear_pin = st.text_input(
+                "Confirm Instructor PIN to Reset",
+                type="password",
+                key="confirm_clear_pin",
+                placeholder="Enter PIN to confirm wipe",
+            )
             if st.button("⚠️ Clear Leaderboard for New Class", type="primary"):
-                leaderboard.reset_leaderboard()
-                st.success("Leaderboard cleared successfully!")
-                st.rerun()
+                if confirm_clear_pin.strip() == default_pin.strip():
+                    leaderboard.reset_leaderboard()
+                    st.success("Leaderboard cleared successfully!")
+                    st.rerun()
+                else:
+                    st.error("PIN confirmation failed. You must re-enter the instructor PIN above to clear the leaderboard.")
 
     elif instructor_pin:
         st.error("Incorrect PIN. Please re-enter or check your environment configuration.")

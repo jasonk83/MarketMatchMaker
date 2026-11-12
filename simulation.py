@@ -5,13 +5,52 @@ Models two-sided network effects, chicken-or-egg liquidity, CAC saturation,
 multi-homing rivalry, and disintermediation (off-platform leakage).
 """
 
+import random
 from dataclasses import dataclass
-from typing import Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple
 
 
 WALK_PRICE = 30.0  # standard price per dog walk
 WALKS_PER_OWNER_PER_ROUND = 12  # average walks per active owner in a round
 BENCHMARK_VALUATION_CEILING = 50.0  # $50M benchmark ceiling for 100/100 score
+
+
+def get_walker_efficiency_rating(owners_per_walker: int) -> str:
+    """Returns a qualitative descriptor for walker capacity/efficiency (5 to 12 owners)."""
+    if owners_per_walker <= 6:
+        return "Novice / Low Efficiency (5–6 owners)"
+    elif owners_per_walker <= 9:
+        return "Standard Efficiency (7–9 owners)"
+    else:
+        return "High Quality / Super Fleet (10–12 owners)"
+
+
+def parse_spend_input(text_val: str, current_val: float, max_val: float) -> float:
+    """
+    Parses open text input into a float representing millions of dollars ($M).
+    Handles:
+    - Decimal millions: '1.25', '1.234', '0.5'
+    - Formatted millions: '$1.25M', '1.25m'
+    - Thousands notation: '500k', '$750K'
+    - Raw whole dollars: '1,250,000', '1250000', '$1,234,567'
+    Clamps result within [0.0, max_val].
+    """
+    if not text_val or not str(text_val).strip():
+        return current_val
+    raw = str(text_val).strip().replace("$", "").replace(",", "")
+    try:
+        if raw.lower().endswith("k"):
+            num = float(raw[:-1].strip())
+            val = (num * 1000.0) / 1_000_000.0
+        elif raw.lower().endswith("m"):
+            val = float(raw[:-1].strip())
+        else:
+            val = float(raw)
+            if val > 1000.0:  # Direct dollars e.g. 1,250,000 -> 1.25M
+                val = val / 1_000_000.0
+        return max(0.0, min(float(max_val), val))
+    except Exception:
+        return current_val
 
 
 @dataclass
@@ -46,6 +85,10 @@ class Round1Result:
     total_spend: float
     cash_end: float
     liquidity_rate: float  # 0.0 to 100.0
+
+    # Walker Efficiency & Quality (Random 5–12 owners/walker)
+    owners_per_walker: int = 8
+    walker_efficiency_rating: str = "Standard Efficiency"
     feedback: str = ""
 
 
@@ -94,6 +137,11 @@ class Round2Result:
     liquidity_rate: float
     retention_rate: float
 
+    # Walker Efficiency & Quality (Random 5–12 owners/walker)
+    owners_per_walker: int = 8
+    walker_efficiency_rating: str = "Standard Efficiency"
+    feedback: str = ""
+
 
 @dataclass
 class FinalScorecard:
@@ -125,10 +173,23 @@ def simulate_round_1(
     trust_spend: float,
     take_rate: float,
     seed_capital: float = 5_000_000.0,
+    owners_per_walker: Optional[int] = None,
 ) -> Round1Result:
     """
     Simulates Round 1: The Liquidity Crisis (Cold Start / Chicken-or-Egg).
+    A dog walker can cover 5 to 12 owners each, drawn randomly per player round
+    based on recruited walker quality, route efficiency, and speed.
     """
+    if owners_per_walker is None:
+        owners_per_walker = random.randint(5, 12)
+    owners_per_walker = max(5, min(12, int(owners_per_walker)))
+    efficiency_rating = get_walker_efficiency_rating(owners_per_walker)
+
+    buyer_spend = max(0.0, float(buyer_spend))
+    supplier_spend = max(0.0, float(supplier_spend))
+    trust_spend = max(0.0, float(trust_spend))
+    take_rate = max(0.01, min(0.50, float(take_rate)))
+
     total_spend = buyer_spend + supplier_spend + trust_spend
     # Cap total spend to available seed capital
     if total_spend > seed_capital:
@@ -138,6 +199,7 @@ def simulate_round_1(
         supplier_spend *= scale
         trust_spend *= scale
         total_spend = seed_capital
+
 
     # 1. Buyer (Dog Owner) Acquisition with concave saturation
     # Base CAC ~$60, rising with single-round aggressive spend
@@ -162,13 +224,13 @@ def simulate_round_1(
         cac_walker = 350.0
         walkers_acquired = 0
 
-    # 3. Supply-to-Demand Balance Ratio (Optimal is 1 Walker per 8 Dog Owners)
-    walker_capacity = walkers_acquired * 8
+    # 3. Supply-to-Demand Balance Ratio (Variable 5 to 12 Owners per Walker)
+    walker_capacity = walkers_acquired * owners_per_walker
     
     if owners_acquired == 0 and walker_capacity == 0:
         balance_ratio = 1.0
-        state = "BALANCED"
-        avg_wait_time = 15
+        state = "INACTIVE"
+        avg_wait_time = 0
         owner_churn = 1.0
         walker_churn = 1.0
     elif walker_capacity == 0:
@@ -220,7 +282,7 @@ def simulate_round_1(
     surviving_walkers = int(walkers_acquired * (1.0 - walker_churn))
 
     # 6. Walk Matching and Financials
-    max_serviceable_owners = min(surviving_owners, surviving_walkers * 8)
+    max_serviceable_owners = min(surviving_owners, surviving_walkers * owners_per_walker)
     potential_total_walks = owners_acquired * WALKS_PER_OWNER_PER_ROUND
     matched_walks = int(max_serviceable_owners * WALKS_PER_OWNER_PER_ROUND * trust_conversion_factor)
     
@@ -249,6 +311,8 @@ def simulate_round_1(
         walker_churn_rate=round(walker_churn, 3),
         safety_incident_rate=round(safety_incident_rate, 4),
         trust_gate_passed=trust_gate_passed,
+        owners_per_walker=owners_per_walker,
+        walker_efficiency_rating=efficiency_rating,
         surviving_owners=surviving_owners,
         surviving_walkers=surviving_walkers,
         matched_walks=matched_walks,
@@ -268,14 +332,32 @@ def simulate_round_2(
     supplier_spend: float,
     trust_spend: float,
     take_rate: float,
+    owners_per_walker: Optional[int] = None,
 ) -> Round2Result:
     """
     Simulates Round 2: The Multi-Homing & Disintermediation Threat.
     Incorporates rival 'BarkBuddy' (12% take rate) and off-platform Venmo leakage.
+    A dog walker can cover 5 to 12 owners each, drawn randomly per player round
+    based on recruited walker quality, route efficiency, and speed.
     """
+    if owners_per_walker is None:
+        owners_per_walker = random.randint(5, 12)
+    owners_per_walker = max(5, min(12, int(owners_per_walker)))
+    efficiency_rating = get_walker_efficiency_rating(owners_per_walker)
+
+    buyer_spend = max(0.0, float(buyer_spend))
+    supplier_spend = max(0.0, float(supplier_spend))
+    trust_spend = max(0.0, float(trust_spend))
+    take_rate = max(0.01, min(0.50, float(take_rate)))
+
     available_cash = r1.cash_end
     total_spend = buyer_spend + supplier_spend + trust_spend
-    if total_spend > available_cash and available_cash > 0:
+    if available_cash <= 0.0:
+        buyer_spend = 0.0
+        supplier_spend = 0.0
+        trust_spend = 0.0
+        total_spend = 0.0
+    elif total_spend > available_cash:
         scale = available_cash / total_spend
         buyer_spend *= scale
         supplier_spend *= scale
@@ -326,7 +408,7 @@ def simulate_round_2(
     
     total_pre_defection_walkers = r1.surviving_walkers + new_walkers
     walkers_lost_to_rival = int(total_pre_defection_walkers * walker_defection_rate)
-    active_walkers = max(0, total_pre_defection_walkers - walkers_lost_to_rival)
+    potential_walkers = max(0, total_pre_defection_walkers - walkers_lost_to_rival)
 
     # 5. Threat 2: Off-Platform Venmo Disintermediation (Leakage)
     # Commission avoidance incentive vs. Platform Trust Moat
@@ -344,28 +426,53 @@ def simulate_round_2(
     # Trust moat (insurance, GPS, replacement guarantee) sharply suppresses leakage
     venmo_leakage_rate = max(0.02, base_leakage_incentive * (1.0 - trust_moat_strength * 0.88))
 
-    # Active customer network
-    active_owners = retained_owners + new_owners
-    walker_capacity = active_walkers * 8
+    # Active customer network before balance churn
+    potential_owners = retained_owners + new_owners
+    potential_capacity = potential_walkers * owners_per_walker
 
-    # Balance classification in R2
-    if active_owners == 0 and walker_capacity == 0:
+    # Balance classification & supply/demand imbalance churn in R2
+    if potential_owners == 0 and potential_capacity == 0:
         balance_ratio = 1.0
-        state = "BALANCED"
-    elif walker_capacity == 0:
+        state = "INACTIVE"
+        active_owners = 0
+        active_walkers = 0
+    elif potential_capacity == 0:
         balance_ratio = 0.0
         state = "DEMAND_OVERLOAD"
-    elif active_owners == 0:
+        imbalance_churn = 0.50
+        active_owners = int(potential_owners * (1.0 - imbalance_churn))
+        active_walkers = 0
+    elif potential_owners == 0:
         balance_ratio = 99.0
         state = "SUPPLY_STARVATION"
+        imbalance_churn = 0.50
+        active_walkers = int(potential_walkers * (1.0 - imbalance_churn))
+        active_owners = 0
     else:
-        balance_ratio = round(walker_capacity / active_owners, 3)
-        if balance_ratio < 0.88:
+        raw_balance_ratio = round(potential_capacity / potential_owners, 3)
+        if raw_balance_ratio < 0.88:
             state = "DEMAND_OVERLOAD"
-        elif balance_ratio > 1.15:
+            severity = (0.88 - raw_balance_ratio) / 0.88
+            # Unfulfilled demand causes owner churn
+            imbalance_churn = min(0.60, 0.60 * severity)
+            active_owners = max(1, int(potential_owners * (1.0 - imbalance_churn)))
+            active_walkers = potential_walkers
+            balance_ratio = raw_balance_ratio
+        elif raw_balance_ratio > 1.15:
             state = "SUPPLY_STARVATION"
+            severity = (raw_balance_ratio - 1.15) / raw_balance_ratio
+            # Idle walkers without bookings churn
+            imbalance_churn = min(0.60, 0.60 * severity)
+            active_walkers = max(1, int(potential_walkers * (1.0 - imbalance_churn)))
+            active_owners = potential_owners
+            balance_ratio = raw_balance_ratio
         else:
             state = "BALANCED"
+            active_owners = potential_owners
+            active_walkers = potential_walkers
+            balance_ratio = raw_balance_ratio
+
+    walker_capacity = active_walkers * owners_per_walker
 
     # 6. Walk Matching & Leakage Fate
     max_serviceable_owners = min(active_owners, walker_capacity)
@@ -398,7 +505,7 @@ def simulate_round_2(
     else:
         retention_rate = 0.0
 
-    return Round2Result(
+    res = Round2Result(
         buyer_spend=buyer_spend,
         supplier_spend=supplier_spend,
         trust_spend=trust_spend,
@@ -421,6 +528,8 @@ def simulate_round_2(
         walker_capacity=walker_capacity,
         balance_ratio=balance_ratio,
         state_classification=state,
+        owners_per_walker=owners_per_walker,
+        walker_efficiency_rating=efficiency_rating,
         potential_walks=potential_walks,
         completed_walks=completed_walks,
         gross_merchandise_value=gmv_completed,
@@ -430,6 +539,8 @@ def simulate_round_2(
         liquidity_rate=liquidity_rate,
         retention_rate=retention_rate,
     )
+    res.feedback = _generate_r2_feedback(res)
+    return res
 
 
 def compute_final_scores(r1: Round1Result, r2: Round2Result) -> FinalScorecard:
@@ -506,7 +617,12 @@ def compute_final_scores(r1: Round1Result, r2: Round2Result) -> FinalScorecard:
 
 def _generate_r1_feedback(r1: Round1Result) -> str:
     parts = []
-    if r1.state_classification == "DEMAND_OVERLOAD":
+    if r1.state_classification == "INACTIVE":
+        parts.append(
+            "💤 **Inactive Strategy**: Zero capital was allocated to acquire dog owners or walkers. "
+            "The marketplace remained completely dormant."
+        )
+    elif r1.state_classification == "DEMAND_OVERLOAD":
         parts.append(
             f"⚠️ **Demand Overload**: You acquired {r1.owners_acquired:,} owners but only {r1.walker_capacity:,} walker capacity. "
             f"Average wait times surged to {r1.avg_wait_time_minutes} minutes, causing {int(r1.owner_churn_rate*100)}% owner churn."
@@ -518,9 +634,16 @@ def _generate_r1_feedback(r1: Round1Result) -> str:
         )
     else:
         parts.append(
-            f"✅ **Hyper-Local Liquidity Synchronized**: Your supply-to-demand ratio ({r1.balance_ratio:.2f}) was in the optimal zone (1 walker per 8 owners). "
-            f"Wait times stayed swift (~{r1.avg_wait_time_minutes}m) with minimal churn."
+            f"✅ **Hyper-Local Liquidity Synchronized**: Your supply-to-demand ratio ({r1.balance_ratio:.2f}) was in the optimal zone "
+            f"for your fleet's {r1.owners_per_walker} owners/walker capacity. Wait times stayed swift (~{r1.avg_wait_time_minutes}m) with minimal churn."
         )
+
+    # Walker Quality & Efficiency Explanation
+    parts.append(
+        f"🎲 **Walker Quality & Efficiency Draw**: Your recruited walkers achieved a service capacity of "
+        f"**{r1.owners_per_walker} owners per walker** ({r1.walker_efficiency_rating}). "
+        f"Walker efficiency varies randomly between 5 and 12 based on walker experience, route density, and stamina."
+    )
 
     if not r1.trust_gate_passed:
         parts.append(
@@ -535,6 +658,32 @@ def _generate_r1_feedback(r1: Round1Result) -> str:
 
 def _generate_r2_feedback(r2: Round2Result) -> str:
     parts = []
+    # Balance / imbalance feedback
+    if r2.state_classification == "INACTIVE":
+        parts.append("💤 **Inactive Platform**: No active dog owners or walkers participated in Round 2.")
+    elif r2.state_classification == "DEMAND_OVERLOAD":
+        parts.append(
+            f"⚠️ **Round 2 Demand Overload**: Dog owner demand outpaced walker capacity (balance ratio: {r2.balance_ratio:.2f}). "
+            f"Unfulfilled walks caused owner frustration and elevated churn."
+        )
+    elif r2.state_classification == "SUPPLY_STARVATION":
+        parts.append(
+            f"⚠️ **Round 2 Supply Starvation**: Recruited walkers exceeded owner demand (balance ratio: {r2.balance_ratio:.2f}). "
+            f"Idle walkers without steady bookings suffered starvation churn."
+        )
+    else:
+        parts.append(
+            f"✅ **Synchronized Platform Fleet**: Supply and demand remained harmonized in Round 2 (ratio: {r2.balance_ratio:.2f}), "
+            f"minimizing idle capacity and wait-time churn."
+        )
+
+    # Round 2 Walker Quality & Efficiency Explanation
+    parts.append(
+        f"🎲 **Round 2 Walker Quality & Efficiency Draw**: Your active fleet operated at a capacity of "
+        f"**{r2.owners_per_walker} owners per walker** ({r2.walker_efficiency_rating}). "
+        f"This dynamic efficiency affected total serviceable capacity in Round 2."
+    )
+
     # Rival Multi-homing feedback
     if r2.take_rate >= 0.20:
         parts.append(
@@ -608,12 +757,14 @@ def _generate_overall_debrief(
 def get_optimal_benchmark() -> Dict[str, Any]:
     """
     Returns the optimal pedagogical benchmark strategy for the Instructor Debrief reveal.
+    Uses standard baseline efficiency (8 owners per walker) for pedagogical comparison.
     """
     r1 = simulate_round_1(
         buyer_spend=1_200_000.0,
         supplier_spend=750_000.0,
         trust_spend=450_000.0,
         take_rate=0.10,
+        owners_per_walker=8,
     )
     r2 = simulate_round_2(
         r1=r1,
@@ -621,6 +772,7 @@ def get_optimal_benchmark() -> Dict[str, Any]:
         supplier_spend=800_000.0,
         trust_spend=500_000.0,
         take_rate=0.15,
+        owners_per_walker=8,
     )
     scorecard = compute_final_scores(r1, r2)
     
