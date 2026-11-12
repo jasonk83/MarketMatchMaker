@@ -16,8 +16,9 @@ os.environ["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
 try:
     import streamlit.runtime.metrics_util as _metrics_util
     class _DummyInstallation:
-        installation_id_v4 = "surge-classdemo-offline-id"
         installation_id = "surge-classdemo-offline-id"
+        installation_id_v3 = "surge-classdemo-offline-id"
+        installation_id_v4 = "surge-classdemo-offline-id"
     _metrics_util.Installation._instance = _DummyInstallation()
 except Exception:
     pass
@@ -26,6 +27,7 @@ import datetime
 import subprocess
 from typing import Optional, Tuple
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt
 
@@ -256,6 +258,34 @@ st.markdown("""
             min-height: 44px !important;
             font-size: 1rem !important;
         }
+    }
+
+    /* Clean button disappearance styling (Zero layout shift, instant visual feedback) */
+    .btn-clicked-hide,
+    button[data-clicked="true"],
+    [data-testid="stButton"] button[data-clicked="true"] {
+        opacity: 0 !important;
+        pointer-events: none !important;
+        cursor: default !important;
+        transition: opacity 0.1s ease-out !important;
+    }
+
+    /* Zero layout shift for utility components */
+    iframe[title="st.iframe"] {
+        position: absolute !important;
+        top: -9999px !important;
+        left: -9999px !important;
+        width: 0px !important;
+        height: 0px !important;
+        border: none !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }
+    div[data-testid="stCustomComponentV1"]:has(iframe[title="st.iframe"]) {
+        height: 0px !important;
+        min-height: 0px !important;
+        margin: 0 !important;
+        padding: 0 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -608,6 +638,8 @@ if "r2_result" not in st.session_state:
     st.session_state.r2_result = None
 if "scorecard" not in st.session_state:
     st.session_state.scorecard = None
+if "scroll_to_top_trigger" not in st.session_state:
+    st.session_state.scroll_to_top_trigger = 0
 
 
 def recover_player_state(identifier: str) -> bool:
@@ -832,6 +864,133 @@ def render_lever_control(
     return float(st.session_state[val_key]) * 1_000_000.0
 
 
+def get_lever_spend_dollars(prefix: str, max_val_m: float) -> float:
+    """
+    Returns exact spend in dollars ($), prioritizing recent open text field entry if valid,
+    and falling back to the synchronized float value or slider.
+    """
+    text_val = st.session_state.get(f"{prefix}_text", "")
+    parsed_val, is_valid = try_parse_spend_input(text_val, max_val_m)
+    if is_valid and parsed_val is not None:
+        st.session_state[f"{prefix}_val"] = parsed_val
+        return float(parsed_val) * 1_000_000.0
+    val = st.session_state.get(f"{prefix}_val")
+    if val is None:
+        val = st.session_state.get(f"{prefix}_slider", 0.0)
+    return float(val) * 1_000_000.0
+
+
+# -----------------------------------------------------------------------------
+# Smooth Viewport Auto-Scroll & Button Disappearance Client Controller
+# -----------------------------------------------------------------------------
+_scroll_signal = f'<div id="surge-scroll-trigger" data-step="{st.session_state.active_step}" data-trigger="{st.session_state.scroll_to_top_trigger}" style="display:none;"></div>'
+_scroll_js = """
+<script>
+(function() {
+    function installTopController() {
+        try {
+            const pWin = (window.parent && window.parent.document) ? window.parent : window;
+            const pDoc = pWin.document;
+            if (!pDoc) return;
+
+            // Define or update scroll function on parent window
+            pWin.surgeScrollToTop = function(smooth) {
+                const behavior = smooth ? 'smooth' : 'auto';
+                try { pWin.scrollTo({ top: 0, left: 0, behavior: behavior }); } catch(e) {}
+                try { pDoc.documentElement.scrollTo({ top: 0, left: 0, behavior: behavior }); } catch(e) {}
+                try { pDoc.body.scrollTo({ top: 0, left: 0, behavior: behavior }); } catch(e) {}
+                const selectors = [
+                    '[data-testid="stAppViewContainer"]',
+                    'section.main',
+                    '.main',
+                    '[data-testid="stMainBlockContainer"]',
+                    '[data-testid="stApp"]',
+                    '[data-testid="stMain"]',
+                    '#root'
+                ];
+                selectors.forEach(function(sel) {
+                    try {
+                        const els = pDoc.querySelectorAll(sel);
+                        els.forEach(function(el) {
+                            if (el) {
+                                try { el.scrollTo({ top: 0, left: 0, behavior: behavior }); } catch(err) {}
+                                el.scrollTop = 0;
+                            }
+                        });
+                    } catch(e) {}
+                });
+                try {
+                    const allEls = pDoc.querySelectorAll('div, section, main');
+                    allEls.forEach(function(el) {
+                        if (el.scrollHeight > el.clientHeight && el.clientHeight > 200) {
+                            const style = pWin.getComputedStyle(el);
+                            if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+                                try { el.scrollTo({ top: 0, left: 0, behavior: behavior }); } catch(e) {}
+                                el.scrollTop = 0;
+                            }
+                        }
+                    });
+                } catch(e) {}
+            };
+
+            // Attach parent document click listener once using capture phase
+            if (!pWin._surgeClickActive) {
+                pWin._surgeClickActive = true;
+                pDoc.addEventListener('click', function(e) {
+                    // Smoothly scroll back to top of the app every time something is clicked
+                    if (typeof pWin.surgeScrollToTop === 'function') {
+                        pWin.surgeScrollToTop(true);
+                        setTimeout(function() { pWin.surgeScrollToTop(true); }, 50);
+                        setTimeout(function() { pWin.surgeScrollToTop(true); }, 150);
+                        setTimeout(function() { pWin.surgeScrollToTop(true); }, 300);
+                    }
+
+                    // Check if clicked element is an action button
+                    const btn = e.target.closest ? e.target.closest('button, [role="button"]') : null;
+                    if (btn) {
+                        const txt = (btn.innerText || btn.textContent || '').toLowerCase();
+                        const isMajorAction = txt.includes('commit round 1') ||
+                                              txt.includes('proceed to round 2') ||
+                                              txt.includes('lock final strategy') ||
+                                              txt.includes('take me to the leaderboard') ||
+                                              txt.includes('claim $5.0m') ||
+                                              txt.includes('confirm reset');
+                        if (isMajorAction) {
+                            const w = btn.offsetWidth;
+                            const h = btn.offsetHeight;
+                            if (w > 0 && h > 0) {
+                                btn.style.width = w + 'px';
+                                btn.style.height = h + 'px';
+                                btn.style.minWidth = w + 'px';
+                                btn.style.minHeight = h + 'px';
+                            }
+                            btn.style.opacity = '0';
+                            btn.style.pointerEvents = 'none';
+                            btn.style.cursor = 'default';
+                            btn.style.transition = 'opacity 0.1s ease-out';
+                            btn.setAttribute('data-clicked', 'true');
+                        }
+                    }
+                }, true);
+            }
+
+            // Immediately scroll parent to top on every render/stage update
+            if (typeof pWin.surgeScrollToTop === 'function') {
+                pWin.surgeScrollToTop(true);
+                setTimeout(function() { pWin.surgeScrollToTop(true); }, 50);
+                setTimeout(function() { pWin.surgeScrollToTop(true); }, 150);
+                setTimeout(function() { pWin.surgeScrollToTop(true); }, 350);
+            }
+        } catch(e) {}
+    }
+
+    installTopController();
+})();
+</script>
+"""
+components.html(_scroll_signal + _scroll_js, height=0, width=0)
+
+
 # -----------------------------------------------------------------------------
 # Main Navigation Tabs
 # -----------------------------------------------------------------------------
@@ -869,7 +1028,7 @@ with tab_player:
             input_name = st.text_input("🐕‍🦺 Founder First Name", placeholder="e.g. Jordan").strip()
             input_company = st.text_input("🐶 Dog Walking Startup Name", placeholder="e.g. Bark Avenue, ZoomieWalks, PawPath").strip()
 
-            if st.button("🐶🚀 Claim $5.0M Seed & Enter Round 1", type="primary", use_container_width=True):
+            if st.button("🐶🚀 Claim $5.0M Seed & Enter Round 1", type="primary", use_container_width=True, key="btn_claim_seed"):
                 if not input_name or not input_company:
                     st.error("Please enter both your First Name and Company Name to begin.")
                 else:
@@ -888,6 +1047,7 @@ with tab_player:
                     recovered = recover_player_state(founder_full_name)
                     if recovered:
                         st.info(f"Welcome back, {st.session_state.player_name}! Restoring your saved session...")
+                        st.session_state.scroll_to_top_trigger += 1
                         st.rerun()
                     else:
                         # New player registration
@@ -901,6 +1061,7 @@ with tab_player:
                             if k.startswith(("r1_buyer", "r1_supplier", "r1_trust", "r2_buyer", "r2_supplier", "r2_trust")):
                                 del st.session_state[k]
                         st.session_state.active_step = "round1"
+                        st.session_state.scroll_to_top_trigger += 1
                         st.rerun()
 
         with col_reg2:
@@ -1012,10 +1173,11 @@ with tab_player:
                 options=[5, 10, 15, 20, 25],
                 index=1,
                 horizontal=True,
+                key="r1_take_rate_pct",
                 format_func=lambda x: f"{x}%",
                 help="Higher take rates yield more revenue per walk, but squeeze walker earnings and depress walker onboarding."
             )
-            take_rate = take_rate_pct / 100.0
+            take_rate = float(take_rate_pct) / 100.0
 
         with col_r:
             st.markdown("### 💰 Budget Tracker")
@@ -1028,6 +1190,13 @@ with tab_player:
                 f"${cash_left:,.0f} unallocated" if cash_left >= 0 else f"${-cash_left:,.0f} OVER BUDGET",
                 delta_color="normal" if cash_left >= 0 else "inverse"
             )
+
+            if st.session_state.get("r1_commit_error"):
+                st.markdown(f"""
+                <div class="danger-box" role="alert" aria-live="assertive">
+                    {st.session_state.r1_commit_error}
+                </div>
+                """, unsafe_allow_html=True)
 
             if round(total_spend_r1, 2) > 5_000_000.0:
                 st.markdown(f"""
@@ -1075,33 +1244,54 @@ with tab_player:
             - Target Ratio: 1 Walker per 5–12 Dog Owners (Target baseline: ~8)
             """)
 
-            can_commit_r1 = (round(total_spend_r1, 2) <= 5_000_000.0 and total_spend_r1 > 0.0)
-            if st.button("🐕‍🦺 Commit Round 1 Strategy (Blind Decision)", type="primary", use_container_width=True, disabled=not can_commit_r1):
-                r1_result = simulate_round_1(
-                    buyer_spend=buyer_spend,
-                    supplier_spend=supplier_spend,
-                    trust_spend=trust_spend,
-                    take_rate=take_rate,
+            def _handle_commit_r1():
+                b_spend = get_lever_spend_dollars("r1_buyer", 5.0)
+                s_spend = get_lever_spend_dollars("r1_supplier", 5.0)
+                t_spend = get_lever_spend_dollars("r1_trust", 5.0)
+                tot = b_spend + s_spend + t_spend
+                if round(tot, 2) > 5_000_000.0:
+                    st.session_state.r1_commit_error = f"🚨 <strong>Budget Overdraft!</strong> You have allocated ${tot:,.0f} (${tot/1_000_000:.2f}M), exceeding your $5.0M seed capital. Please reduce spend before committing."
+                    return
+                if tot <= 0.0:
+                    st.session_state.r1_commit_error = "⚠️ <strong>No Capital Allocated:</strong> All levers are at $0. Please allocate your $5.0M seed capital across levers before committing."
+                    return
+                st.session_state.r1_commit_error = None
+                t_rate = float(st.session_state.get("r1_take_rate_pct", 10)) / 100.0
+                r1_res = simulate_round_1(
+                    buyer_spend=b_spend,
+                    supplier_spend=s_spend,
+                    trust_spend=t_spend,
+                    take_rate=t_rate,
                 )
-                st.session_state.r1_result = r1_result
-                
-                # Persist to DB
+                st.session_state.r1_result = r1_res
                 leaderboard.save_round_1_results(
                     first_name=st.session_state.player_name,
-                    r1_buyer=buyer_spend,
-                    r1_supplier=supplier_spend,
-                    r1_trust=trust_spend,
-                    r1_take=take_rate,
-                    owners=r1_result.owners_acquired,
-                    walkers=r1_result.walkers_acquired,
-                    balance=r1_result.balance_ratio,
-                    state=r1_result.state_classification,
-                    liquidity=r1_result.liquidity_rate,
-                    net_rev=r1_result.platform_net_revenue,
-                    cash_end=r1_result.cash_end,
-                    r1_owners_per_walker=r1_result.owners_per_walker,
+                    r1_buyer=b_spend,
+                    r1_supplier=s_spend,
+                    r1_trust=t_spend,
+                    r1_take=t_rate,
+                    owners=r1_res.owners_acquired,
+                    walkers=r1_res.walkers_acquired,
+                    balance=r1_res.balance_ratio,
+                    state=r1_res.state_classification,
+                    liquidity=r1_res.liquidity_rate,
+                    net_rev=r1_res.platform_net_revenue,
+                    cash_end=r1_res.cash_end,
+                    r1_owners_per_walker=r1_res.owners_per_walker,
                 )
                 st.session_state.active_step = "round1_report"
+                st.session_state.scroll_to_top_trigger += 1
+
+            commit_r1_clicked = st.button(
+                "🐕‍🦺 Commit Round 1 Strategy (Blind Decision)",
+                type="primary",
+                use_container_width=True,
+                disabled=False,
+                key="btn_commit_round_1",
+                on_click=_handle_commit_r1,
+            )
+            if commit_r1_clicked and st.session_state.active_step == "round1":
+                _handle_commit_r1()
                 st.rerun()
 
     # Step 2: Round 1 Diagnostic Report
@@ -1177,9 +1367,20 @@ with tab_player:
         </div>
         """, unsafe_allow_html=True)
 
-        if st.button("⚡ Proceed to Round 2: Rival Threat (BarkBuddy 🐕)", type="primary", use_container_width=True):
+        def _handle_proceed_to_round_2():
             leaderboard.proceed_to_round_2(st.session_state.player_name)
             st.session_state.active_step = "round2"
+            st.session_state.scroll_to_top_trigger += 1
+
+        proceed_r2_clicked = st.button(
+            "⚡ Proceed to Round 2: Rival Threat (BarkBuddy 🐕)",
+            type="primary",
+            use_container_width=True,
+            key="btn_proceed_to_round_2",
+            on_click=_handle_proceed_to_round_2,
+        )
+        if proceed_r2_clicked and st.session_state.active_step == "round1_report":
+            _handle_proceed_to_round_2()
             st.rerun()
 
     # Step 3: Round 2 Strategy Allocation
@@ -1288,10 +1489,11 @@ with tab_player:
                     options=[5, 10, 15, 20, 25],
                     index=2,
                     horizontal=True,
+                    key="r2_take_rate_pct",
                     format_func=lambda x: f"{x}%",
                     help="20% and 25% take rates trigger massive multi-homing defection to BarkBuddy and heavy Venmo leakage."
                 )
-                take_rate_2 = take_rate_pct_2 / 100.0
+                take_rate_2 = float(take_rate_pct_2) / 100.0
 
         with col2_r:
             st.markdown("### 💰 Round 2 Budget Tracker")
@@ -1344,27 +1546,45 @@ with tab_player:
             - **Fleet Quality Draw:** Walkers in Round 2 will operate at a newly drawn efficiency of **5–12 owners each**.
             """)
 
-            can_lock_r2 = (round(total_spend_r2, 2) <= round(available_cash_r2, 2)) and (available_cash_r2 <= 0.0 or total_spend_r2 > 0.0)
-            if st.button("🔒 Lock Final Strategy (Submit Round 2 🐶)", type="primary", use_container_width=True, disabled=not can_lock_r2):
+            if st.session_state.get("r2_commit_error"):
+                st.markdown(f"""
+                <div class="danger-box" role="alert" aria-live="assertive">
+                    {st.session_state.r2_commit_error}
+                </div>
+                """, unsafe_allow_html=True)
+
+            def _handle_lock_round_2(available_cash: float):
+                max_val = max(0.05, available_cash / 1_000_000.0) if available_cash > 0.0 else 0.0
+                b_spend_2 = get_lever_spend_dollars("r2_buyer", max_val) if available_cash > 0 else 0.0
+                s_spend_2 = get_lever_spend_dollars("r2_supplier", max_val) if available_cash > 0 else 0.0
+                t_spend_2 = get_lever_spend_dollars("r2_trust", max_val) if available_cash > 0 else 0.0
+                tot_2 = b_spend_2 + s_spend_2 + t_spend_2
+                if round(tot_2, 2) > round(available_cash, 2):
+                    st.session_state.r2_commit_error = f"🚨 <strong>Exceeds Available Cash!</strong> You have allocated ${tot_2:,.0f}, exceeding your ${available_cash:,.0f} available reserves."
+                    return
+                if available_cash > 0.0 and tot_2 <= 0.0:
+                    st.session_state.r2_commit_error = "⚠️ <strong>No Capital Allocated:</strong> Please allocate your available cash reserves across growth, retention, and trust before submitting."
+                    return
+                st.session_state.r2_commit_error = None
+                t_rate_2 = float(st.session_state.get("r2_take_rate_pct", 15)) / 100.0
+                r1_curr = st.session_state.r1_result
                 r2_result = simulate_round_2(
-                    r1=r1,
-                    buyer_spend=buyer_spend_2,
-                    supplier_spend=supplier_spend_2,
-                    trust_spend=trust_spend_2,
-                    take_rate=take_rate_2,
+                    r1=r1_curr,
+                    buyer_spend=b_spend_2,
+                    supplier_spend=s_spend_2,
+                    trust_spend=t_spend_2,
+                    take_rate=t_rate_2,
                 )
-                scorecard = compute_final_scores(r1, r2_result)
-                
+                scorecard = compute_final_scores(r1_curr, r2_result)
                 st.session_state.r2_result = r2_result
                 st.session_state.scorecard = scorecard
 
-                # Persist to DB and mark Completed
                 leaderboard.save_round_2_and_complete(
                     first_name=st.session_state.player_name,
-                    r2_buyer=buyer_spend_2,
-                    r2_supplier=supplier_spend_2,
-                    r2_trust=trust_spend_2,
-                    r2_take=take_rate_2,
+                    r2_buyer=b_spend_2,
+                    r2_supplier=s_spend_2,
+                    r2_trust=t_spend_2,
+                    r2_take=t_rate_2,
                     r2_liquidity=r2_result.liquidity_rate,
                     r2_retention=r2_result.retention_rate,
                     r2_net_rev=r2_result.platform_net_revenue,
@@ -1378,6 +1598,19 @@ with tab_player:
                     r2_owners_per_walker=r2_result.owners_per_walker,
                 )
                 st.session_state.active_step = "final_scorecard"
+                st.session_state.scroll_to_top_trigger += 1
+
+            lock_r2_clicked = st.button(
+                "🔒 Lock Final Strategy (Submit Round 2 🐶)",
+                type="primary",
+                use_container_width=True,
+                disabled=False,
+                key="btn_lock_round_2",
+                on_click=_handle_lock_round_2,
+                args=(available_cash_r2,),
+            )
+            if lock_r2_clicked and st.session_state.active_step == "round2":
+                _handle_lock_round_2(available_cash_r2)
                 st.rerun()
 
     # Step 4: Final Scorecard (Single Attempt Permanently Locked)
@@ -1543,13 +1776,18 @@ with tab_player:
 
         def _navigate_to_leaderboard():
             st.session_state.main_tab_nav = TAB_LEADERBOARD
+            st.session_state.scroll_to_top_trigger += 1
 
-        st.button(
+        nav_lb_clicked = st.button(
             "🏆 Take me to the Leaderboard",
             type="primary",
             use_container_width=True,
+            key="btn_take_me_to_leaderboard",
             on_click=_navigate_to_leaderboard,
         )
+        if nav_lb_clicked and st.session_state.main_tab_nav != TAB_LEADERBOARD:
+            _navigate_to_leaderboard()
+            st.rerun()
 
 
 # =============================================================================

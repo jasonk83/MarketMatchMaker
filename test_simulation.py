@@ -132,7 +132,7 @@ class TestMarketplaceSimulation(unittest.TestCase):
         - balance_ratio < 0.88 causes unfulfilled demand owner churn.
         - balance_ratio > 1.15 causes idle walker churn.
         """
-        r1 = simulate_round_1(buyer_spend=1_200_000.0, supplier_spend=750_000.0, trust_spend=450_000.0, take_rate=0.10)
+        r1 = simulate_round_1(buyer_spend=1_200_000.0, supplier_spend=750_000.0, trust_spend=450_000.0, take_rate=0.10, owners_per_walker=8)
 
         # R2 Demand Overload
         r2_overload = simulate_round_2(
@@ -141,6 +141,7 @@ class TestMarketplaceSimulation(unittest.TestCase):
             supplier_spend=50_000.0,
             trust_spend=100_000.0,
             take_rate=0.15,
+            owners_per_walker=8,
         )
         self.assertEqual(r2_overload.state_classification, "DEMAND_OVERLOAD")
         self.assertLess(r2_overload.balance_ratio, 0.88)
@@ -156,6 +157,7 @@ class TestMarketplaceSimulation(unittest.TestCase):
             supplier_spend=2_000_000.0,
             trust_spend=100_000.0,
             take_rate=0.15,
+            owners_per_walker=8,
         )
         self.assertEqual(r2_starvation.state_classification, "SUPPLY_STARVATION")
         self.assertGreater(r2_starvation.balance_ratio, 1.15)
