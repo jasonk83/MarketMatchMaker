@@ -6,6 +6,22 @@ multi-homing rivalry, and disintermediation (off-platform leakage).
 """
 
 import os
+import sys
+
+# Ensure Streamlit operates in a writable environment on Android/Linux VM,
+# preventing read-only filesystem errors when managing internal telemetry/state.
+os.environ["HOME"] = "/tmp"
+os.environ["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
+
+try:
+    import streamlit.runtime.metrics_util as _metrics_util
+    class _DummyInstallation:
+        installation_id_v4 = "surge-classdemo-offline-id"
+        installation_id = "surge-classdemo-offline-id"
+    _metrics_util.Installation._instance = _DummyInstallation()
+except Exception:
+    pass
+
 import datetime
 import subprocess
 from typing import Optional, Tuple
