@@ -72,18 +72,65 @@ st.markdown("""
     .success-sub {
         color: #4ADE80 !important;
     }
-    .info-tooltip {
-        cursor: help;
-        font-size: 0.85rem !important;
-        opacity: 0.85;
-        margin-left: 5px;
+    .info-tooltip-wrap {
+        position: relative;
         display: inline-block;
         vertical-align: middle;
-        text-decoration: none;
     }
-    .info-tooltip:hover {
-        opacity: 1.0;
-        transform: scale(1.15);
+    .info-tooltip-btn {
+        background: transparent !important;
+        border: none !important;
+        cursor: pointer !important;
+        padding: 0 4px !important;
+        font-size: 0.95rem !important;
+        line-height: 1 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+    }
+    .info-tooltip-btn:focus-visible, .info-tooltip-btn:focus {
+        outline: 2px solid #60A5FA !important;
+        outline-offset: 2px !important;
+        border-radius: 4px !important;
+    }
+    .info-tooltip-bubble {
+        visibility: hidden;
+        opacity: 0;
+        width: 250px;
+        background-color: #0F172A !important;
+        color: #F8FAFC !important;
+        text-align: left;
+        border-radius: 8px;
+        padding: 10px 14px;
+        position: absolute;
+        z-index: 999;
+        bottom: 130%;
+        left: 50%;
+        transform: translateX(-50%);
+        box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+        border: 1px solid #475569 !important;
+        font-size: 0.82rem !important;
+        font-weight: 400 !important;
+        text-transform: none !important;
+        letter-spacing: normal !important;
+        line-height: 1.4 !important;
+        transition: opacity 0.2s ease, visibility 0.2s ease;
+        pointer-events: none;
+    }
+    .info-tooltip-bubble::after {
+        content: "";
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        margin-left: -6px;
+        border-width: 6px;
+        border-style: solid;
+        border-color: #475569 transparent transparent transparent;
+    }
+    .info-tooltip-wrap:hover .info-tooltip-bubble,
+    .info-tooltip-wrap:focus-within .info-tooltip-bubble {
+        visibility: visible;
+        opacity: 1;
+        pointer-events: auto;
     }
     /* Section Callout Card */
     .callout-box {
@@ -348,11 +395,21 @@ def render_instructor_page(app_access_url: str):
             ).strip()
         with col_pin_btn:
             if st.button("🔓 Authenticate", type="primary", use_container_width=True):
+                failed_attempts = st.session_state.get("instructor_failed_pin_attempts", 0)
+                if failed_attempts >= 3:
+                    import time
+                    time.sleep(2.0)
                 if entered_pin == default_pin.strip():
                     st.session_state.instructor_authenticated = True
+                    st.session_state.instructor_failed_pin_attempts = 0
                     st.rerun()
                 else:
-                    st.error("Incorrect PIN. Please re-enter or check your environment configuration.")
+                    st.session_state.instructor_failed_pin_attempts = failed_attempts + 1
+                    new_count = failed_attempts + 1
+                    if new_count >= 3:
+                        st.error(f"Incorrect PIN ({new_count} consecutive failed attempts). A 2-second security cooldown has been applied to protect classroom settings.")
+                    else:
+                        st.error("Incorrect PIN. Please re-enter or check your environment configuration.")
 
         st.write("")
         st.link_button("🎮 Return to Student Gameplay", url=app_access_url)
@@ -390,11 +447,25 @@ def render_instructor_page(app_access_url: str):
     with disp_col2:
         current_custom_url = leaderboard.get_app_setting("classroom_app_url", "")
         new_custom_url = st.text_input("📱 Classroom App URL (for QR Code)", value=current_custom_url, placeholder="e.g. http://10.102.151.26:8501")
-        if st.button("Save QR Code URL", use_container_width=True):
-            leaderboard.set_app_setting("classroom_app_url", new_custom_url.strip())
-            st.cache_data.clear()
-            st.success("App URL updated! The header QR code has refreshed.")
-            st.rerun()
+        col_url_save, col_qr_dl = st.columns(2)
+        with col_url_save:
+            if st.button("Save QR Code URL", use_container_width=True):
+                leaderboard.set_app_setting("classroom_app_url", new_custom_url.strip())
+                st.cache_data.clear()
+                st.success("App URL updated! The header QR code has refreshed.")
+                st.rerun()
+        with col_qr_dl:
+            qr_target_url = new_custom_url.strip() or current_custom_url.strip() or app_access_url
+            qr_bytes = get_qr_code_image_bytes(qr_target_url)
+            if qr_bytes:
+                st.download_button(
+                    label="📥 Download QR Code (PNG)",
+                    data=qr_bytes,
+                    file_name="classroom_join_qr_code.png",
+                    mime="image/png",
+                    use_container_width=True,
+                    help="Download high-resolution QR code image for classroom presentation slides."
+                )
 
     # Section 2: Export Student Results (CSV)
     st.markdown("---")
@@ -610,18 +681,13 @@ if not st.session_state.player_name:
 # -----------------------------------------------------------------------------
 # Quantitative Lever Control Component (Slider + Open Text Field)
 # -----------------------------------------------------------------------------
-def parse_spend_input(text_val: str, current_val: float, max_val: float) -> float:
+def try_parse_spend_input(text_val: str, max_val: float) -> Tuple[Optional[float], bool]:
     """
-    Parses open text input into a float representing millions of dollars ($M).
-    Handles:
-    - Decimal millions: '1.25', '1.234', '0.5'
-    - Formatted millions: '$1.25M', '1.25m'
-    - Thousands notation: '500k', '$750K'
-    - Raw whole dollars: '1,250,000', '1250000', '$1,234,567'
-    Clamps result within [0.0, max_val].
+    Attempts to parse text input into a float in millions ($M).
+    Returns (parsed_value_or_None, is_valid_format).
     """
     if not text_val or not str(text_val).strip():
-        return current_val
+        return (None, True)
     raw = str(text_val).strip().replace("$", "").replace(",", "")
     try:
         if raw.lower().endswith("k"):
@@ -633,21 +699,45 @@ def parse_spend_input(text_val: str, current_val: float, max_val: float) -> floa
             val = float(raw)
             if val > 1000.0:  # Direct dollars e.g. 1,250,000 -> 1.25M
                 val = val / 1_000_000.0
-        return max(0.0, min(float(max_val), val))
+        if val < 0.0:
+            return (None, False)
+        return (max(0.0, min(float(max_val), val)), True)
     except Exception:
-        return current_val
+        return (None, False)
+
+
+def parse_spend_input(text_val: str, current_val: float, max_val: float) -> float:
+    """
+    Parses open text input into a float representing millions of dollars ($M).
+    Handles:
+    - Decimal millions: '1.25', '1.234', '0.5'
+    - Formatted millions: '$1.25M', '1.25m'
+    - Thousands notation: '500k', '$750K'
+    - Raw whole dollars: '1,250,000', '1250000', '$1,234,567'
+    Clamps result within [0.0, max_val].
+    """
+    val, ok = try_parse_spend_input(text_val, max_val)
+    if ok and val is not None:
+        return val
+    return current_val
 
 
 def _sync_lever_from_slider(prefix: str):
     val = st.session_state[f"{prefix}_slider"]
     st.session_state[f"{prefix}_val"] = val
     st.session_state[f"{prefix}_text"] = f"${val:.2f}M"
+    st.session_state[f"{prefix}_format_error"] = False
 
 
 def _sync_lever_from_text(prefix: str, max_val: float):
     raw = st.session_state.get(f"{prefix}_text", "")
     curr = st.session_state.get(f"{prefix}_val", 0.0)
-    parsed = parse_spend_input(raw, curr, max_val)
+    parsed_val, is_valid = try_parse_spend_input(raw, max_val)
+    if not is_valid:
+        st.session_state[f"{prefix}_format_error"] = True
+        return
+    st.session_state[f"{prefix}_format_error"] = False
+    parsed = curr if parsed_val is None else parsed_val
     st.session_state[f"{prefix}_val"] = parsed
     # Slider is clamped to max_val and rounded to 2 decimals
     st.session_state[f"{prefix}_slider"] = max(0.0, min(float(max_val), round(parsed, 2)))
@@ -717,7 +807,12 @@ def render_lever_control(
             label_visibility="collapsed",
             help="Type exact spend: e.g. 1.25M, $750k, or $1,234,567 to allocate every dollar.",
         )
-        st.caption("Exact spend: e.g. 1.25M, 750k")
+        if st.session_state.get(f"{key_prefix}_format_error", False):
+            st.caption("⚠️ Unrecognized. Try e.g. `1.25M`, `$750k`, or `$500,000`")
+        else:
+            st.caption("Exact spend: e.g. 1.25M, 750k")
+
+    return float(st.session_state[val_key]) * 1_000_000.0
 
     return float(st.session_state[val_key]) * 1_000_000.0
 
@@ -1086,11 +1181,12 @@ with tab_player:
 
         # Round 1 Fleet Baseline Carried Forward
         st.markdown("### 🐾 Round 1 Fleet Baseline Carried Forward")
-        b_c1, b_c2, b_c3, b_c4 = st.columns(4)
+        b_c1, b_c2, b_c3, b_c4, b_c5 = st.columns(5)
         b_c1.metric("🐶 Surviving Owners", f"{r1.surviving_owners:,}")
-        b_c2.metric("🦮 Active Walkers", f"{r1.surviving_walkers:,}", f"R1 Capacity: {r1.surviving_walkers * r1.owners_per_walker:,} owners ({r1.owners_per_walker}/walker)")
-        b_c3.metric("🥩 R1 Take Rate", f"{int(r1.take_rate * 100)}%")
-        b_c4.metric("💰 Available Cash for R2", f"${available_cash_r2/1_000_000:.2f}M")
+        b_c2.metric("🦮 Active Walkers", f"{r1.surviving_walkers:,}")
+        b_c3.metric("⭐ R1 Fleet Quality", f"{r1.owners_per_walker}/wk", r1.walker_efficiency_rating)
+        b_c4.metric("🥩 R1 Take Rate", f"{int(r1.take_rate * 100)}%")
+        b_c5.metric("💰 Available Cash", f"${available_cash_r2/1_000_000:.2f}M")
 
         col2_l, col2_r = st.columns([3, 2])
         if available_cash_r2 <= 0.0:
@@ -1157,11 +1253,11 @@ with tab_player:
                 )
 
                 trust_spend_2 = render_lever_control(
-                    "3. 🦴 Platform Governance & Trust Moat (Anti-Leakage Shield)",
+                    "3. 🦴 Pet Emergency Insurance & Platform Trust Moat (Anti-Leakage Shield)",
                     key_prefix="r2_trust",
                     default_m=0.0,
                     max_m=float(max_spend_val),
-                    help_text="Cumulative trust spend creates switching friction that stops Venmo leakage dead in its tracks."
+                    help_text="Funds $25k Pet Emergency Insurance, automated walker background checks, and live GPS tracking. Cumulative trust spend with Round 1 creates switching friction that stops Venmo leakage dead in its tracks."
                 )
 
                 take_rate_pct_2 = st.radio(
@@ -1218,6 +1314,13 @@ with tab_player:
             cum_trust = r1.trust_spend + trust_spend_2
             st.markdown(f"**🦴 Cumulative Trust Moat:** `${cum_trust/1_000_000:.2f}M` (Target: `$0.8M+` for max Venmo defense)")
 
+            st.markdown("""
+            **Strategic Check:**
+            - **Rival Take Rate:** BarkBuddy charges **12%** (take rates above 15% trigger severe walker defection).
+            - **Anti-Leakage Defense:** Cumulative Trust Moat of **$0.80M+** ($800k) virtually eliminates Venmo leakage.
+            - **Fleet Quality Draw:** Walkers in Round 2 will operate at a newly drawn efficiency of **5–12 owners each**.
+            """)
+
             can_lock_r2 = (round(total_spend_r2, 2) <= round(available_cash_r2, 2)) and (available_cash_r2 <= 0.0 or total_spend_r2 > 0.0)
             if st.button("🔒 Lock Final Strategy (Submit Round 2 🐶)", type="primary", use_container_width=True, disabled=not can_lock_r2):
                 r2_result = simulate_round_2(
@@ -1268,14 +1371,17 @@ with tab_player:
         </div>
         """, unsafe_allow_html=True)
 
-        # Headline Score Banner with 100-Level Business Tooltips
+        # Headline Score Banner with Accessible Business Tooltips (Keyboard & Mobile Focusable)
         score_c1, score_c2, score_c3, score_c4 = st.columns(4)
         with score_c1:
             st.markdown(f"""
             <div class="metric-card" style="border-color: #60A5FA;">
                 <div class="metric-title">
                     🏆 Composite Index Score
-                    <span class="info-tooltip" title="Composite Score: Overall platform performance index (0–100) weighting Marketplace Liquidity, Platform Retention, and Enterprise Valuation equally (1/3 each).">ℹ️</span>
+                    <span class="info-tooltip-wrap">
+                        <button type="button" class="info-tooltip-btn" aria-label="Learn more about Composite Score" tabindex="0">ℹ️</button>
+                        <span class="info-tooltip-bubble" role="tooltip">Composite Score: Overall platform performance index (0–100) weighting Marketplace Liquidity, Platform Retention, and Enterprise Valuation equally (1/3 each).</span>
+                    </span>
                 </div>
                 <div class="metric-value" style="color: #60A5FA;">{sc.composite_score:.1f} / 100</div>
                 <div class="metric-sub">Weighted 1/3 each</div>
@@ -1286,7 +1392,10 @@ with tab_player:
             <div class="metric-card">
                 <div class="metric-title">
                     🎾 Marketplace Liquidity
-                    <span class="info-tooltip" title="Marketplace Liquidity: Measures how easily and quickly buyers and sellers match. High liquidity means dog owners promptly find available walkers without long wait times or cancellations.">ℹ️</span>
+                    <span class="info-tooltip-wrap">
+                        <button type="button" class="info-tooltip-btn" aria-label="Learn more about Marketplace Liquidity" tabindex="0">ℹ️</button>
+                        <span class="info-tooltip-bubble" role="tooltip">Marketplace Liquidity: Measures how easily and quickly buyers and sellers match. High liquidity means dog owners promptly find available walkers without long wait times or cancellations.</span>
+                    </span>
                 </div>
                 <div class="metric-value">{sc.liquidity_score:.1f}%</div>
                 <div class="metric-sub">{sc.completed_walks:,} completed walks 🐾</div>
@@ -1297,7 +1406,10 @@ with tab_player:
             <div class="metric-card">
                 <div class="metric-title">
                     🐕 Platform Retention
-                    <span class="info-tooltip" title="Platform Retention: The percentage of buyers and sellers who remain active on your platform over time instead of switching to competitors (like BarkBuddy) or transacting off-platform via Venmo.">ℹ️</span>
+                    <span class="info-tooltip-wrap">
+                        <button type="button" class="info-tooltip-btn" aria-label="Learn more about Platform Retention" tabindex="0">ℹ️</button>
+                        <span class="info-tooltip-bubble" role="tooltip">Platform Retention: The percentage of buyers and sellers who remain active on your platform over time instead of switching to competitors (like BarkBuddy) or transacting off-platform via Venmo.</span>
+                    </span>
                 </div>
                 <div class="metric-value">{sc.retention_score:.1f}%</div>
                 <div class="metric-sub">{r2.active_owners:,} owners 🐶 | {r2.active_walkers:,} walkers 🦮</div>
@@ -1308,7 +1420,10 @@ with tab_player:
             <div class="metric-card">
                 <div class="metric-title">
                     💎 Enterprise Valuation
-                    <span class="info-tooltip" title="Enterprise Valuation: The estimated total market worth of your company, calculated from annual operating profit multiplied by an industry multiple (8×–14× based on retention quality) plus remaining cash.">ℹ️</span>
+                    <span class="info-tooltip-wrap">
+                        <button type="button" class="info-tooltip-btn" aria-label="Learn more about Enterprise Valuation" tabindex="0">ℹ️</button>
+                        <span class="info-tooltip-bubble" role="tooltip">Enterprise Valuation: The estimated total market worth of your company, calculated from annual operating profit multiplied by an industry multiple (8×–14× based on retention quality) plus remaining cash.</span>
+                    </span>
                 </div>
                 <div class="metric-value">${sc.enterprise_valuation:.2f}M</div>
                 <div class="metric-sub">${sc.operating_valuation:.2f}M Ops + ${sc.cash_remaining:.2f}M Cash</div>
@@ -1356,7 +1471,7 @@ with tab_player:
             arc = base.mark_arc(innerRadius=60).encode(
                 color=alt.Color("Outcome:N", legend=alt.Legend(orient="bottom", title=None, labelLimit=250), scale=alt.Scale(
                     domain=["Completed on Platform 🐶", "Leaked to Venmo Off-App 📱", "Unmatched / Shortage 😿"],
-                    range=["#10B981", "#F87171", "#94A3B8"]
+                    range=["#0284C7", "#F97316", "#94A3B8"]
                 ))
             )
             text = base.transform_filter("datum.Walks > 0").mark_text(
@@ -1375,6 +1490,24 @@ with tab_player:
             """)
 
         with col_f2:
+            st.markdown("### 🎲 Fleet Quality & Efficiency Evolution")
+            col_eq1, col_eq2 = st.columns(2)
+            with col_eq1:
+                st.metric(
+                    "Round 1 Fleet Quality",
+                    f"{r1.owners_per_walker} owners/wk",
+                    r1.walker_efficiency_rating,
+                    delta_color="off"
+                )
+            with col_eq2:
+                st.metric(
+                    "Round 2 Fleet Quality",
+                    f"{r2.owners_per_walker} owners/wk",
+                    r2.walker_efficiency_rating,
+                    delta_color="off"
+                )
+            st.caption("Walker capacity is randomly drawn between 5 and 12 owners per walker each round based on walker experience, stamina, and route efficiency.")
+
             st.markdown("### 📑 Strategic Executive Debrief")
             st.markdown(sc.overall_debrief)
             st.markdown("---")
