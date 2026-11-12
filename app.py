@@ -10,7 +10,6 @@ import datetime
 import subprocess
 from typing import Optional, Tuple
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import altair as alt
 
@@ -820,26 +819,17 @@ def render_lever_control(
 # -----------------------------------------------------------------------------
 # Main Navigation Tabs
 # -----------------------------------------------------------------------------
-tab_player, tab_leaderboard = st.tabs([
-    "🐶 Launch Your Marketplace (Player Console)",
-    "🏆🐕 Live Class Leaderboard & Instructor Debrief",
-])
+TAB_PLAYER = "🐶 Launch Your Marketplace (Player Console)"
+TAB_LEADERBOARD = "🏆🐕 Live Class Leaderboard & Instructor Debrief"
 
-# Programmatic Tab Switcher for "Take me to the Leaderboard"
-if st.session_state.get("jump_to_leaderboard", False):
-    st.session_state.jump_to_leaderboard = False
-    components.html("""
-    <script>
-        const switchTab = () => {
-            const tabs = window.parent.document.querySelectorAll('button[data-testid="stTab"]');
-            if (tabs && tabs.length > 1) {
-                tabs[1].click();
-                window.parent.scrollTo({top: 0, behavior: 'smooth'});
-            }
-        };
-        setTimeout(switchTab, 60);
-    </script>
-    """, height=0, width=0)
+if "main_tab_nav" not in st.session_state:
+    st.session_state.main_tab_nav = TAB_PLAYER
+
+tab_player, tab_leaderboard = st.tabs(
+    [TAB_PLAYER, TAB_LEADERBOARD],
+    key="main_tab_nav",
+    on_change="rerun",
+)
 
 
 # =============================================================================
@@ -929,6 +919,7 @@ with tab_player:
                     st.session_state.player_pin = ""
                     st.session_state.company_name = ""
                     st.session_state.active_step = "registration"
+                    st.session_state.main_tab_nav = TAB_PLAYER
                     st.session_state.r1_result = None
                     st.session_state.r2_result = None
                     st.session_state.scorecard = None
@@ -1170,22 +1161,10 @@ with tab_player:
         </div>
         """, unsafe_allow_html=True)
 
-        col_undo, col_proc = st.columns([1, 1])
-        with col_undo:
-            if st.button(
-                "↩️ Undo Allocation (Adjust Choices)",
-                type="secondary",
-                use_container_width=True,
-                help="Step back to Round 1 to adjust your spend sliders and take rate before advancing."
-            ):
-                leaderboard.step_back_to_round_1(st.session_state.player_name)
-                st.session_state.active_step = "round1"
-                st.rerun()
-        with col_proc:
-            if st.button("⚡ Proceed to Round 2: Rival Threat (BarkBuddy 🐕)", type="primary", use_container_width=True):
-                leaderboard.proceed_to_round_2(st.session_state.player_name)
-                st.session_state.active_step = "round2"
-                st.rerun()
+        if st.button("⚡ Proceed to Round 2: Rival Threat (BarkBuddy 🐕)", type="primary", use_container_width=True):
+            leaderboard.proceed_to_round_2(st.session_state.player_name)
+            st.session_state.active_step = "round2"
+            st.rerun()
 
     # Step 3: Round 2 Strategy Allocation
     if st.session_state.active_step == "round2":
@@ -1545,14 +1524,16 @@ with tab_player:
 
         st.write("")
         st.divider()
-        if st.button(
+
+        def _navigate_to_leaderboard():
+            st.session_state.main_tab_nav = TAB_LEADERBOARD
+
+        st.button(
             "🏆 Take me to the Leaderboard",
             type="primary",
             use_container_width=True,
-            help="Jump over to the Live Class Leaderboard to see how your venture ranks against your classmates!"
-        ):
-            st.session_state.jump_to_leaderboard = True
-            st.rerun()
+            on_click=_navigate_to_leaderboard,
+        )
 
 
 # =============================================================================
