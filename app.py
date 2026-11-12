@@ -882,7 +882,7 @@ with tab_player:
             )
 
             trust_spend = render_lever_control(
-                "3. 🦴 Pet Safety, Insurance & Vet Governance (Trust Moat)",
+                "3. 🦴 Pet Emergency Insurance, Walker Background Checks, GPS Walk Tracking (Trust Moat)",
                 key_prefix="r1_trust",
                 default_m=0.0,
                 max_m=5.0,
